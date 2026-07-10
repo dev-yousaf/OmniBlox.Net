@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 2: Domain Entities & EF Core</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+  <p class="lesson-meta">
+    <span class="lesson-number">Lesson 2</span> &middot;
+    Domain Entities &amp; EF Core Configuration &middot;
+    ~20 minutes
+  </p>
+
+  <h1>Domain Entities &amp; EF Core Fluent API</h1>
+
+  <p>
+    In Prisma, you define models in <code>schema.prisma</code> and Prisma generates C# types.
+    In EF Core, <strong>you write the C# classes first</strong>, then configure how they map
+    to the database using Fluent API. This is called <strong>code-first</strong>.
+  </p>
+
+  <div class="callout warning">
+    <strong>Mindset shift:</strong> Prisma = schema-first (define DB schema, get C# types).
+    EF Core = code-first (write C# classes, generate DB schema). Your entities are
+    <em>plain C# objects (POCOs)</em> with no EF Core attributes required — though you
+    <em>can</em> use data annotations if you prefer.
+  </div>
+
+  <h2>Step 1: Enums</h2>
+
+  <p>
+    Create these in <code>src/OmniBlox.Domain/Enums/</code>.
+    These are simple C# enums — no EF Core involvement yet.
+  </p>
+
+  <p><strong>UserRole.cs</strong></p>
+  <pre>
+namespace OmniBlox.Domain.Enums;
+
+public enum UserRole
+{
+    OWNER = 0,
+    ADMIN = 1,
+    MANAGER = 2,
+    OBSERVER = 3
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax breakdown:</strong>
+    <code>namespace OmniBlox.Domain.Enums;</code> — file-scoped namespace (C# 10+). Everything in this file belongs to that namespace. Like a folder path for code. No <code>{ }</code> needed.<br>
+    <code>public enum UserRole { ... }</code> — an enum is a set of named constants. The numbers after <code>=</code> are the underlying integer values (stored in DB as these ints).<br>
+    <code>OWNER = 0</code> — by convention, 0 is the default value. <code>UserRole</code> without assignment defaults to <code>OWNER</code>.
+  </div>
+
+  <p><strong>UserStatus.cs</strong></p>
+  <pre>
+namespace OmniBlox.Domain.Enums;
+
+public enum UserStatus
+{
+    ACTIVE = 0,
+    INVITED = 1,
+    SUSPENDED = 2
+}</pre>
+
+  <h2>Step 2: Base Entity</h2>
+
+  <p>
+    Every entity needs an <code>Id</code> property. Create a base class in Domain
+    so we don't repeat it:
+  </p>
+
+  <p><strong>src/OmniBlox.Domain/Entities/BaseEntity.cs</strong></p>
+  <pre>
+namespace OmniBlox.Domain.Entities;
+
+public abstract class BaseEntity
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax breakdown:</strong>
+    <code>abstract class BaseEntity</code> — abstract = can't create <code>new BaseEntity()</code> directly. It's a base for other classes to inherit from.<br>
+    <code>Guid Id { get; set; }</code> — a property with a getter and setter. Like TypeScript: <code>get Id(): string { ... } set Id(v) { ... }</code>. <code>Guid</code> is .NET's UUID.<br>
+    <code>= Guid.NewGuid()</code> — default value: generates a new UUID when a new entity is created.<br>
+    <code>DateTime? UpdatedAt</code> — the <code>?</code> makes it nullable. <code>UpdatedAt</code> will be <code>null</code> until the entity is first updated.
+  </div>
+
+  <h2>Step 3: Company Entity</h2>
+
+  <p>
+    Company is the root of multi-tenancy. Every tenant-scoped entity will reference it.
+    In NestJS/Prisma, this was your <code>@Model() Company</code> — now it's a plain class.
+  </p>
+
+  <p><strong>src/OmniBlox.Domain/Entities/Company.cs</strong></p>
+  <pre>
+namespace OmniBlox.Domain.Entities;
+
+public class Company : BaseEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Phone { get; set; } = string.Empty;
+    public string? Address { get; set; }
+    public bool IsActive { get; set; } = true;
+
+    public ICollection&lt;User&gt; Users { get; set; } = [];
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax breakdown:</strong>
+    <code>public class Company : BaseEntity</code> — Company <em>inherits</em> from BaseEntity. Gets <code>Id</code>, <code>CreatedAt</code>, <code>UpdatedAt</code> for free.<br>
+    <code>string Name { get; set; } = string.Empty;</code> — property with default value <code>""</code>. Prevents null issues. Prisma equivalent: <code>name String</code>.<br>
+    <code>string? Address</code> — nullable string. Prisma equivalent: <code>address String?</code>.<br>
+    <code>ICollection&lt;User&gt; Users { get; set; } = [];</code> — navigation property. Tells EF Core "one Company has many Users". <code>ICollection&lt;T&gt;</code> is the interface for a list. <code>= []</code> initializes as empty collection (C# 12 syntax).
+  </div>
+
+  <h2>Step 4: User Entity</h2>
+
+  <p>
+    Notice the FK to Company and the enum properties. EF Core stores enums as
+    integers by default — we'll configure that explicitly in the next step.
+  </p>
+
+  <p><strong>src/OmniBlox.Domain/Entities/User.cs</strong></p>
+  <pre>
+using OmniBlox.Domain.Enums;
+
+namespace OmniBlox.Domain.Entities;
+
+public class User : BaseEntity
+{
+    public string Email { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public UserRole Role { get; set; } = UserRole.OBSERVER;
+    public UserStatus Status { get; set; } = UserStatus.INVITED;
+
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax breakdown:</strong>
+    <code>using OmniBlox.Domain.Enums;</code> — imports the Enums namespace so we can use <code>UserRole</code> and <code>UserStatus</code> without full path.<br>
+    <code>public UserRole Role { get; set; }</code> — property of enum type. EF Core stores it as int in DB (0=OWNER, 1=ADMIN etc.).<br>
+    <code>Guid CompanyId { get; set; }</code> — the foreign key column. Prisma equivalent: <code>companyId String</code>.<br>
+    <code>Company Company { get; set; } = null!;</code> — navigation property to the parent Company. <code>null!</code> tells the compiler "trust me, this won't be null at runtime" (EF Core sets it). Like TypeScript's <code>!</code> non-null assertion.<br>
+    <strong>Two sides of the same relationship:</strong> <code>Company.Users</code> (collection nav) ↔ <code>User.Company</code> (reference nav) + <code>User.CompanyId</code> (FK).
+  </div>
+
+  <div class="callout">
+    <strong>Prisma ↔ EF Core comparison:</strong>
+    <code>@id @default(uuid())</code> → <code>Guid Id</code> + <code>= Guid.NewGuid()</code>.<br>
+    <code>@relation(fields: [companyId], references: [id])</code> → <code>CompanyId</code> property
+    + <code>Company</code> navigation property.<br>
+    <code>companyId  String</code> → <code>public Guid CompanyId { get; set; }</code>.
+  </div>
+
+  <h2>Step 5: EF Core — The AppDbContext</h2>
+
+  <p>
+    The DbContext is the equivalent of your Prisma client — it's the main class
+    that queries and saves data. We'll put it in Infrastructure since it's an
+    implementation detail.
+  </p>
+
+  <p><strong>src/OmniBlox.Infrastructure/Persistence/AppDbContext.cs</strong></p>
+  <pre>
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence;
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions&lt;AppDbContext&gt; options)
+        : base(options) { }
+
+    public DbSet&lt;Company&gt; Companies => Set&lt;Company&gt;();
+    public DbSet&lt;User&gt; Users => Set&lt;User&gt;();
+
+    protected override void OnModelCreating(ModelBuilder builder)
+    {
+        base.OnModelCreating(builder);
+        builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+    }
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax breakdown:</strong>
+    <code>public class AppDbContext : DbContext</code> — inherits from EF Core's built-in DbContext class. That's what gives it query/save/migration capabilities.<br>
+    <code>public AppDbContext(DbContextOptions&lt;AppDbContext&gt; options) : base(options) { }</code> — constructor receives the connection config (<code>DbContextOptions</code>) and passes it to the base class. NestJS equivalent: PrismaClient's constructor.<br>
+    <code>public DbSet&lt;Company&gt; Companies => Set&lt;Company&gt;();</code> — <code>DbSet&lt;T&gt;</code> represents a database table. <code>Companies</code> = the "Companies" table. <code>=> Set&lt;Company&gt;()</code> is an expression-bodied member (C# 6+) — shorthand for <code>{ get { return Set&lt;Company&gt;(); } }</code>. NestJS equivalent: <code>prisma.company</code>.<br>
+    <code>protected override void OnModelCreating(ModelBuilder builder)</code> — override method called by EF Core when the model is being built (on app startup). This is where all entity configurations are applied.<br>
+    <code>builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly)</code> — scans the entire Infrastructure assembly for any class that implements <code>IEntityTypeConfiguration&lt;T&gt;</code> and automatically registers them. Add a new config file? It just works.
+  </div>
+
+  <h2>Step 6: Fluent API Configurations</h2>
+
+  <p>
+    In Prisma, constraints go in <code>schema.prisma</code>. In EF Core, they go in
+    separate configuration files using the Fluent API. Each entity gets its own file.
+  </p>
+
+  <p><strong>src/OmniBlox.Infrastructure/Persistence/Configurations/CompanyConfiguration.cs</strong></p>
+  <pre>
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence.Configurations;
+
+public class CompanyConfiguration : IEntityTypeConfiguration&lt;Company&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;Company&gt; builder)
+    {
+        builder.ToTable("Companies");
+
+        builder.HasKey(c => c.Id);
+
+        builder.Property(c => c.Name)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        builder.Property(c => c.Email)
+            .HasMaxLength(256)
+            .IsRequired();
+
+        builder.Property(c => c.Phone)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        builder.Property(c => c.Address)
+            .HasMaxLength(500);
+
+        builder.HasIndex(c => c.Email).IsUnique();
+    }
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax breakdown — Fluent API:</strong>
+    <code>IEntityTypeConfiguration&lt;Company&gt;</code> — interface with one method <code>Configure</code>. EF Core calls it automatically to learn how <code>Company</code> maps to the DB. Like Prisma's schema block for a model.<br>
+    <code>builder.ToTable("Companies")</code> — the table name in PostgreSQL. Without this, EF Core would use "Company" (pluralization isn't automatic).<br>
+    <code>builder.HasKey(c => c.Id)</code> — sets primary key. <code>c => c.Id</code> is a <strong>lambda expression</strong> — C#'s arrow function. Think <code>(c) => c.Id</code> in TypeScript.<br>
+    <code>builder.Property(c => c.Name).HasMaxLength(200).IsRequired()</code> — chain of method calls (fluent API): select the column → set max length → make it NOT NULL. Prisma equivalent: <code>name String @db.VarChar(200)</code>.<br>
+    <code>builder.HasIndex(c => c.Email).IsUnique()</code> — unique index on Email column. Prisma equivalent: <code>@unique</code>.
+  </div>
+
+  <p><strong>src/OmniBlox.Infrastructure/Persistence/Configurations/UserConfiguration.cs</strong></p>
+  <pre>
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence.Configurations;
+
+public class UserConfiguration : IEntityTypeConfiguration&lt;User&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;User&gt; builder)
+    {
+        builder.ToTable("Users");
+
+        builder.HasKey(u => u.Id);
+
+        builder.Property(u => u.Email)
+            .HasMaxLength(256)
+            .IsRequired();
+
+        builder.Property(u => u.PasswordHash)
+            .HasMaxLength(500)
+            .IsRequired();
+
+        builder.Property(u => u.Name)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        builder.Property(u => u.Role)
+            .HasConversion&lt;int&gt;()
+            .IsRequired();
+
+        builder.Property(u => u.Status)
+            .HasConversion&lt;int&gt;()
+            .IsRequired();
+
+        builder.HasIndex(u => u.Email).IsUnique();
+
+        builder.HasOne(u => u.Company)
+            .WithMany(c => c.Users)
+            .HasForeignKey(u => u.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax breakdown — Fluent API (new parts):</strong>
+    <code>.HasConversion&lt;int&gt;()</code> — tells EF Core to store the enum as an integer (0, 1, 2...) instead of a string. Default would work too, but explicit is clearer.<br>
+    <code>builder.HasOne(u => u.Company)</code> — "User has one Company". Starts defining the relationship.<br>
+    <code>.WithMany(c => c.Users)</code> — "Company has many Users". Completes the relationship definition.<br>
+    <code>.HasForeignKey(u => u.CompanyId)</code> — "the FK column is User.CompanyId".<br>
+    <code>.OnDelete(DeleteBehavior.Restrict)</code> — "don't cascade delete". Prevent deleting a Company if it still has users. Prisma equivalent: <code>onDelete: Restrict</code>.<br>
+    <strong>Full chain:</strong> <code>HasOne → WithMany → HasForeignKey → OnDelete</code> reads as: "User has one Company which has many Users, joined on User.CompanyId, restrict deletes".
+  </div>
+
+  <h2>Step 7: Configure the Connection String</h2>
+
+  <p>
+    The DbContext needs a database to connect to. The connection string goes in
+    <code>appsettings.json</code> in the Api project (the startup project).
+    This is the .NET equivalent of a <code>.env</code> file.
+  </p>
+
+  <p><strong>src/OmniBlox.Api/appsettings.json</strong> — add this at the top:</p>
+
+  <pre>
+{
+  <b>"ConnectionStrings": {
+    "Postgres": "Host=localhost;Port=5432;Database=omniblox;Username=postgres;Password=postgres"
+  },</b>
+  "Logging": { ... },
+  "AllowedHosts": "*"
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax breakdown:</strong>
+    <code>"ConnectionStrings"</code> — a special config section. <code>GetConnectionString("Postgres")</code> in the DI code reads <code>ConnectionStrings:Postgres</code> from this file.<br>
+    <code>Host=localhost;Port=5432;Database=omniblox</code> — standard PostgreSQL connection string format. Adjust if your DB has different credentials.<br>
+    <strong>Important:</strong> This file is in the <em>Api</em> project, not Infrastructure. Configuration always lives in the startup project. The Infrastructure project <em>reads</em> it via <code>IConfiguration</code> injected from Api.
+  </div>
+
+  <div class="callout warning">
+    <strong>Don't have PostgreSQL installed?</strong> You can install it locally, or use Docker:
+    <code>docker run -d --name omniblox-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16</code>
+    Then <code>dotnet ef database update</code> will create the tables.
+  </div>
+
+  <h2>Step 8: Register DbContext in DI</h2>
+
+  <p>
+    We need to tell ASP.NET Core how to create our DbContext. Create a
+    <code>DependencyInjection</code> class in Infrastructure
+    (this will grow as we add more services).
+  </p>
+
+  <p><strong>src/OmniBlox.Infrastructure/DependencyInjection.cs</strong></p>
+  <pre>
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using OmniBlox.Infrastructure.Persistence;
+
+namespace OmniBlox.Infrastructure;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddDbContext&lt;AppDbContext&gt;(options =>
+            options.UseNpgsql(
+                configuration.GetConnectionString("Postgres"),
+                b => b.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
+
+        return services;
+    }
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax breakdown — DI Extension Method:</strong>
+    <code>public static class DependencyInjection</code> — static class (can't be instantiated, all members are static). Container for related methods.<br>
+    <code>this IServiceCollection services</code> — the <code>this</code> keyword makes this an <strong>extension method</strong>. It lets you call <code>services.AddInfrastructure(...)</code> as if it were a built-in method. Like adding a method to an existing class in TypeScript via prototype.<br>
+    <code>IServiceCollection</code> — ASP.NET Core's DI container. All services (DbContext, repositories, JWT service) are registered here.<br>
+    <code>services.AddDbContext&lt;AppDbContext&gt;(options => ...)</code> — registers AppDbContext in DI with scoped lifetime (one instance per HTTP request).<br>
+    <code>options.UseNpgsql(connectionString, b => b.MigrationsAssembly(...))</code> — tells EF Core to use PostgreSQL. <code>MigrationsAssembly</code> tells EF Core which project contains the migration files (Infrastructure, not Api).<br>
+    <code>return services;</code> — returns the service collection so calls can be chained.
+  </div>
+
+  <h2>Step 9: Register in Program.cs</h2>
+
+  <p>Update <code>src/OmniBlox.Api/Program.cs</code>:</p>
+
+  <pre>
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllers();
+builder.Services.AddOpenApi();
+
+<b>builder.Services.AddInfrastructure(builder.Configuration);</b>
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
+app.UseHttpsRedirection();
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();</pre>
+
+  <div class="callout">
+    <strong>What changed:</strong>
+    <code>builder.Services.AddInfrastructure(builder.Configuration)</code> — calls our extension method from the Infrastructure project. This registers AppDbContext and EF Core in the DI container. Without this line, EF Core won't know about PostgreSQL and <code>AppDbContext</code> can't be injected into controllers.<br>
+    <code>builder.Configuration</code> — accesses the <code>appsettings.json</code> config. The <code>GetConnectionString("Postgres")</code> inside AddInfrastructure reads from the <code>ConnectionStrings:Postgres</code> key.
+  </div>
+
+  <h2>Full Command Sequence</h2>
+
+  <p>Here are all the commands to create the files from this lesson, in order:</p>
+
+  <pre>
+<span class="hljs-comment" style="color:var(--muted);"># 1. Create enum files</span>
+New-Item -Path src\OmniBlox.Domain\Enums\UserRole.cs -Force
+New-Item -Path src\OmniBlox.Domain\Enums\UserStatus.cs -Force
+
+<span class="hljs-comment" style="color:var(--muted);"># 2. Create entity files</span>
+New-Item -Path src\OmniBlox.Domain\Entities\BaseEntity.cs -Force
+New-Item -Path src\OmniBlox.Domain\Entities\Company.cs -Force
+New-Item -Path src\OmniBlox.Domain\Entities\User.cs -Force
+
+<span class="hljs-comment" style="color:var(--muted);"># 3. Create EF Core files</span>
+New-Item -Path src\OmniBlox.Infrastructure\Persistence\AppDbContext.cs -Force
+New-Item -Path src\OmniBlox.Infrastructure\Persistence\Configurations\CompanyConfiguration.cs -Force
+New-Item -Path src\OmniBlox.Infrastructure\Persistence\Configurations\UserConfiguration.cs -Force
+New-Item -Path src\OmniBlox.Infrastructure\DependencyInjection.cs -Force</pre>
+
+  <p>Then paste the code from each section above into the corresponding file.</p>
+
+  <h2>Verify It Builds</h2>
+
+  <pre>
+dotnet build</pre>
+
+  <p>
+    If it compiles, you've successfully created your first entities and wired up
+    EF Core. Next, install the EF Core CLI tool (if you haven't already) and create
+    your first migration:
+  </p>
+
+  <div class="callout warning">
+    <strong>⚠️ Common gotcha #1 — Design package:</strong>
+    The CLI will give you this error if you skip this step:<br>
+    <em>"Your startup project 'OmniBlox.Api' doesn't reference Microsoft.EntityFrameworkCore.Design."</em><br>
+    The Api project (startup project) needs this package even though the migrations live in Infrastructure.
+    Add it first: <code>dotnet add src\OmniBlox.Api\OmniBlox.Api.csproj package Microsoft.EntityFrameworkCore.Design</code>
+  </div>
+
+  <div class="callout warning">
+    <strong>⚠️ Common gotcha #2 — Database not created yet:</strong>
+    The first time you run <code>dotnet ef database update</code>, you'll see a scary-looking error
+    like <em>"Failed executing DbCommand ... SELECT FROM __EFMigrationsHistory"</em>. This is normal —
+    it's trying to check the migration history table before the database exists. The command will
+    then create the database and apply the migration. Check the last line: if it says <code>Done.</code>,
+    you're good.
+  </div>
+
+  <pre>
+<span class="hljs-comment" style="color:var(--muted);"># 0. Install the EF Core CLI tool (one-time)</span>
+dotnet tool install --global dotnet-ef
+
+<span class="hljs-comment" style="color:var(--muted);"># 1. Add EF Core Design package to the Api project (required by CLI)</span>
+dotnet add src\OmniBlox.Api\OmniBlox.Api.csproj package Microsoft.EntityFrameworkCore.Design
+
+<span class="hljs-comment" style="color:var(--muted);"># 2. Create the first migration</span>
+dotnet ef migrations add InitialCreate ^
+    --project src\OmniBlox.Infrastructure ^
+    --startup-project src\OmniBlox.Api
+
+<span class="hljs-comment" style="color:var(--muted);"># 3. Check the generated migration (will show "Pending" before applying)</span>
+dotnet ef migrations list ^
+    --project src\OmniBlox.Infrastructure ^
+    --startup-project src\OmniBlox.Api
+
+<span class="hljs-comment" style="color:var(--muted);"># 4. Apply migrations to the database</span>
+dotnet ef database update ^
+    --project src\OmniBlox.Infrastructure ^
+    --startup-project src\OmniBlox.Api
+
+<span class="hljs-comment" style="color:var(--muted);"># 5. If you made a mistake, remove the last migration:</span>
+dotnet ef migrations remove ^
+    --project src\OmniBlox.Infrastructure ^
+    --startup-project src\OmniBlox.Api</pre>
+
+  <div class="callout">
+    <strong>Why <code>--project</code> and <code>--startup-project</code>?</strong><br>
+    <code>--project</code> = where the DbContext is (Infrastructure).<br>
+    <code>--startup-project</code> = where <code>appsettings.json</code> and <code>Program.cs</code> are (Api).<br>
+    The <code>^</code> character is PowerShell's line continuation (like <code>\</code> in bash).
+  </div>
+
+  <div class="callout success">
+    <strong>Your first migration</strong> will contain <code>CreateTable("Companies")</code>
+    and <code>CreateTable("Users")</code> with all the columns and constraints you defined
+    in the Fluent API. Open the generated file in <code>Infrastructure/Persistence/Migrations/</code>
+    to see the SQL. This is the EF Core equivalent of <code>prisma migrate dev</code>.
+  </div>
+
+  <h2>Prisma → EF Core Mapping Summary</h2>
+
+  <table>
+    <tr><th>Prisma</th><th>EF Core</th></tr>
+    <tr><td><code>model Company { ... }</code></td><td><code>class Company : BaseEntity { ... }</code></td></tr>
+    <tr><td><code>schema.prisma</code></td><td>Fluent API <code>IEntityTypeConfiguration&lt;T&gt;</code></td></tr>
+    <tr><td><code>prisma migrate dev</code></td><td><code>dotnet ef migrations add</code></td></tr>
+    <tr><td><code>prisma db push</code></td><td><code>dotnet ef database update</code></td></tr>
+    <tr><td><code>prisma generate</code></td><td>Not needed — you write the classes</td></tr>
+    <tr><td><code>@id @default(uuid())</code></td><td><code>Guid Id { get; set; }</code> (+ default in config)</td></tr>
+    <tr><td><code>@relation(...)</code></td><td><code>HasOne()</code> / <code>WithMany()</code> Fluent API</td></tr>
+    <tr><td><code>@@unique([...])</code></td><td><code>HasIndex().IsUnique()</code></td></tr>
+  </table>
+
+  <h2>Watch &amp; Read</h2>
+  <ul>
+    <li>
+      <strong>Primary source:</strong>
+      <a href="https://learn.microsoft.com/en-us/ef/core/get-started/overview/first-app?tabs=netcore-cli" target="_blank">
+        EF Core Getting Started (Microsoft Docs)
+      </a>
+      — Official tutorial covering DbContext, entities, and migrations.
+    </li>
+    <li>
+      <a href="https://learn.microsoft.com/en-us/ef/core/modeling/" target="_blank">
+        EF Core Modeling (Fluent API reference)
+      </a>
+      — Full reference for all configuration options.
+    </li>
+    <li>
+      <a href="https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/" target="_blank">
+        EF Core Migrations
+      </a>
+      — How to create and manage migrations.
+    </li>
+  </ul>
+
+  <hr>
+
+  <h2>Check Your Understanding</h2>
+  <ol>
+    <li>Create the files above, then run <code>dotnet build</code>.</li>
+    <li>Add the migration — does <code>dotnet ef migrations add InitialCreate</code> work?</li>
+    <li>Open the generated migration file — can you see the Companies and Users tables being created?</li>
+    <li>Why did we put <code>builder.HasIndex(u => u.Email).IsUnique()</code> instead of
+      <code>[Index]</code> attribute on the entity? (Hint: separation of concerns.)</li>
+  </ol>
+
+  <div class="callout">
+    <strong>Stuck?</strong> Common issues: missing <code>using</code> directives,
+    forgetting to call <code>AddInfrastructure()</code> in Program.cs, or not having
+    the <code>dotnet-ef</code> tool installed. Ask me!
+  </div>
+
+  <hr>
+
+  <p style="font-size:0.85rem; color:var(--muted);">
+    Next lesson: JWT Authentication &amp; the Auth Controller.
+  </p>
+</body>
+</html>

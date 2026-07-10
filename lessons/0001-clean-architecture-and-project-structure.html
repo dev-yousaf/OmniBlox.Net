@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 1: Clean Architecture & Project Structure</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+  <p class="lesson-meta">
+    <span class="lesson-number">Lesson 1</span> &middot;
+    Clean Architecture &amp; Project Structure &middot;
+    ~10 minutes
+  </p>
+
+  <h1>Clean Architecture &amp; Multi-Project Solution</h1>
+
+  <p>
+    Before writing any code, you need to understand the <strong>key syntax elements</strong>
+    of a .NET project — the <code>.csproj</code> file and <code>Program.cs</code> —
+    and how they map to concepts you already know from NestJS. Then we'll look at
+    <strong>why</strong> the solution is split into five projects instead of one.
+    This is the <strong>Clean Architecture</strong>
+    pattern — it enforces separation of concerns at the <em>compiler level</em>.
+  </p>
+
+  <div class="callout">
+    <strong>NestJS analogy:</strong> In NestJS, <code>@Module()</code> decorators create logical
+    boundaries at runtime. In ASP.NET Core, we use <strong>project references</strong> to create
+    <em>compile-time</em> boundaries. If someone accidentally imports EF Core in the Domain project,
+    <code>dotnet build</code> will fail. That's the whole point.
+  </div>
+
+  <h2>Anatomy of a .csproj File</h2>
+
+  <p>Open <code>src/OmniBlox.Api/OmniBlox.Api.csproj</code>. Here's what each line means:</p>
+
+  <pre>
+&lt;Project Sdk="Microsoft<span class="hljs-selector-class">.NET</span>Sdk.Web"&gt;    <span class="hljs-comment" style="color:var(--muted);">// ← "Web" SDK = this is a web API project</span>
+                                       <span class="hljs-comment" style="color:var(--muted);">//    "NET.Sdk" = class library</span>
+
+  &lt;PropertyGroup&gt;
+    &lt;TargetFramework&gt;net10.0&lt;/TargetFramework&gt;   <span class="hljs-comment" style="color:var(--muted);">// ← targets .NET 10</span>
+    &lt;Nullable&gt;enable&lt;/Nullable&gt;                  <span class="hljs-comment" style="color:var(--muted);">// ← enables nullable reference types</span>
+    &lt;ImplicitUsings&gt;enable&lt;/ImplicitUsings&gt;      <span class="hljs-comment" style="color:var(--muted);">// ← auto-imports common namespaces</span>
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;PackageReference Include="MediatR" Version="14.2.0" /&gt;  <span class="hljs-comment" style="color:var(--muted);">// ← NuGet package, like npm package</span>
+  &lt;/ItemGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;ProjectReference Include="..\OmniBlox.Application\...csproj" /&gt;  <span class="hljs-comment" style="color:var(--muted);">// ← project dependency</span>
+  &lt;/ItemGroup&gt;</pre>
+
+  <table>
+    <tr><th>XML Element</th><th>What It Means</th><th>NestJS Equivalent</th></tr>
+    <tr><td><code>Sdk="Microsoft.NET.Sdk.Web"</code></td><td>This project is a web app (has Program.cs, can run)</td><td><code>"type": "module"</code> in package.json</td></tr>
+    <tr><td><code>TargetFramework</code></td><td>Which .NET version — determines available APIs</td><td><code>"engines": { "node": ">=20" }</code></td></tr>
+    <tr><td><code>PackageReference</code></td><td>An external NuGet dependency</td><td><code>dependencies</code> in package.json</td></tr>
+    <tr><td><code>ProjectReference</code></td><td>A reference to another project in this solution</td><td>Workspace <code>"references"</code> in tsconfig</td></tr>
+    <tr><td><code>Nullable</code></td><td>When enabled, <code>string?</code> means "might be null"</td><td>TypeScript's <code>strictNullChecks</code></td></tr>
+    <tr><td><code>ImplicitUsings</code></td><td>Auto-imports <code>System</code>, <code>System.Collections.Generic</code>, etc.</td><td>No equivalent — C#'s built-in global usings</td></tr>
+  </table>
+
+  <h2>Anatomy of Program.cs</h2>
+
+  <p>Open <code>src/OmniBlox.Api/Program.cs</code> — this is the entry point, like NestJS's <code>main.ts</code> + <code>AppModule</code> combined:</p>
+
+  <pre>
+<span class="hljs-comment" style="color:var(--muted);">// 1. BUILD the app (register services, configure DI)</span>
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers();
+builder.Services.AddOpenApi();
+
+<span class="hljs-comment" style="color:var(--muted);">// 2. BUILD (creates the pipeline)</span>
+var app = builder.Build();
+
+<span class="hljs-comment" style="color:var(--muted);">// 3. CONFIGURE middleware (order matters — runs top to bottom)</span>
+app.MapOpenApi();
+app.UseHttpsRedirection();
+app.UseAuthorization();
+app.MapControllers();
+
+<span class="hljs-comment" style="color:var(--muted);">// 4. RUN (start listening for HTTP requests)</span>
+app.Run();</pre>
+
+  <table>
+    <tr><th>Line</th><th>What It Does</th><th>NestJS Equivalent</th></tr>
+    <tr><td><code>WebApplication.CreateBuilder(args)</code></td><td>Creates the builder that sets up DI, config, logging</td><td><code>new NestFactory.create(AppModule)</code></td></tr>
+    <tr><td><code>builder.Services.AddControllers()</code></td><td>Registers all <code>[ApiController]</code> classes</td><td>Module's <code>controllers: [UserController]</code></td></tr>
+    <tr><td><code>builder.Services.AddOpenApi()</code></td><td>Enables OpenAPI/Swagger doc generation</td><td><code>SwaggerModule.setup()</code></td></tr>
+    <tr><td><code>builder.Services.AddInfrastructure()</code></td><td>Our custom extension — registers EF Core, etc.</td><td><code>imports: [InfrastructureModule]</code></td></tr>
+    <tr><td><code>app.UseAuthorization()</code></td><td>Adds auth middleware to the pipeline</td><td><code>app.use(cookieParser())</code> / Guards</td></tr>
+    <tr><td><code>app.MapControllers()</code></td><td>Maps routes from controller attributes</td><td><code>app.use(router)</code></td></tr>
+  </table>
+
+  <div class="callout">
+    <strong>Key concept:</strong> NestJS uses decorators + modules. ASP.NET Core uses <em>middleware pipeline</em>.
+    Every request flows through the pipeline in order: OpenAPI → HTTPS redirect → Auth → Controller.
+    This is like NestJS's <code>app.use()</code> chain but built into the framework.
+  </div>
+
+  <h2>The Five Projects</h2>
+
+  <p>Open <code>OmniBlox.sln</code> in your IDE. You'll see:</p>
+
+  <table>
+    <tr><th>Project</th><th>Role</th><th>Depends On</th></tr>
+    <tr>
+      <td><code>OmniBlox.Domain</code></td>
+      <td>Entities, Enums, Value Objects — pure business logic</td>
+      <td>Shared</td>
+    </tr>
+    <tr>
+      <td><code>OmniBlox.Application</code></td>
+      <td>CQRS Commands/Queries, Handlers, DTOs, Pipeline Behaviors</td>
+      <td>Domain, Shared</td>
+    </tr>
+    <tr>
+      <td><code>OmniBlox.Infrastructure</code></td>
+      <td>EF Core DbContext, JWT Service, Email, Caching</td>
+      <td>Application, Shared</td>
+    </tr>
+    <tr>
+      <td><code>OmniBlox.Api</code></td>
+      <td>Controllers, Middleware, Program.cs — the HTTP entry point</td>
+      <td>Application, Infrastructure, Shared</td>
+    </tr>
+    <tr>
+      <td><code>OmniBlox.Shared</code></td>
+      <td>Cross-cutting: Exceptions, Results, Extensions</td>
+      <td><em>Nothing</em></td>
+    </tr>
+  </table>
+
+  <h2>Dependency Direction (The Golden Rule)</h2>
+
+  <pre style="text-align:center; line-height:2.2;">
+    Api
+     ↓
+  Infrastructure → Application → Domain → Shared
+                                      ↓
+                                   (nothing)
+  </pre>
+
+  <p>
+    Dependencies always point <strong>inward</strong>. Domain knows nothing about databases,
+    HTTP, or JWT. Application knows about Domain but not about PostgreSQL or email providers.
+    This is the <strong>Dependency Inversion Principle</strong> — the "D" in SOLID.
+  </p>
+
+  <h2>What's Already Done</h2>
+
+  <p>The solution skeleton is fully in place. Let's walk through what exists:</p>
+
+  <h3>NuGet Packages</h3>
+  <p>All key packages from the migration guide are already installed:</p>
+  <table>
+    <tr><th>Package</th><th>Project</th><th>Replaces (NestJS)</th></tr>
+    <tr><td>MediatR</td><td>Application</td><td>Modular services</td></tr>
+    <tr><td>FluentValidation</td><td>Application</td><td>class-validator</td></tr>
+    <tr><td>EF Core + Npgsql</td><td>Infrastructure</td><td>Prisma</td></tr>
+    <tr><td>JwtBearer</td><td>Infrastructure</td><td>Better Auth</td></tr>
+    <tr><td>Serilog</td><td>Api</td><td>NestJS Logger</td></tr>
+    <tr><td>Mapster</td><td>Api, Application, Infrastructure</td><td>Manual DTOs</td></tr>
+    <tr><td>FluentEmail</td><td>Infrastructure</td><td>Nodemailer</td></tr>
+    <tr><td>Swashbuckle</td><td>Api</td><td>Swagger</td></tr>
+  </table>
+
+  <h3>Feature Folders</h3>
+  <p>
+    Open <code>src/OmniBlox.Application/Features/</code> — you'll see <strong>27 domain modules</strong>
+    already created, one per OmniBlox domain (Products, Sales, Purchases, etc.).
+    These are empty for now. We'll fill them in upcoming lessons.
+  </p>
+
+  <h3>Infrastructure Scaffolding</h3>
+  <p>
+    <code>Infrastructure/Persistence/</code> has subfolders for Configurations, Migrations, and Repositories.
+    <code>Infrastructure/Auth/</code> is ready for the JWT service.
+    All empty — waiting for code.
+  </p>
+
+  <h2>One Piece of Housekeeping</h2>
+
+  <p>
+    There's still a default <code>WeatherForecastController.cs</code> and
+    <code>WeatherForecast.cs</code> from the template. Delete them:
+  </p>
+
+  <pre>
+Remove-Item src\OmniBlox.Api\Controllers\WeatherForecastController.cs
+Remove-Item src\OmniBlox.Api\WeatherForecast.cs</pre>
+
+  <p>Then <code>dotnet build</code> should still pass.</p>
+
+  <h2>Watch &amp; Read</h2>
+  <ul>
+    <li>
+      <strong>Primary source:</strong>
+      <a href="https://www.youtube.com/watch?v=rjefnUC9Z90" target="_blank">
+        Clean Architecture with ASP.NET Core 10 (.NET Conf 2025)
+      </a>
+      — Watch the first 30 min for the architecture principles.
+    </li>
+    <li>
+      <strong>Reference:</strong>
+      <a href="https://github.com/jasontaylordev/CleanArchitecture" target="_blank">
+        Jason Taylor's CleanArchitecture template
+      </a>
+      — Our structure is based on this.
+    </li>
+  </ul>
+
+  <hr>
+
+  <h2>Check Your Understanding</h2>
+  <ol>
+    <li>Delete the WeatherForecast files, then run <code>dotnet build</code> — does it compile?</li>
+    <li>Open <code>OmniBlox.Domain.csproj</code> — does it reference Infrastructure or EF Core? (It shouldn't.)</li>
+    <li>Can you name what the Shared project is for?</li>
+  </ol>
+
+  <div class="callout">
+    <strong>Stuck?</strong> Ask follow-up questions — that's what I'm here for.
+  </div>
+
+  <hr>
+
+  <p style="font-size:0.85rem; color:var(--muted);">
+    Next lesson: <a href="0002-domain-entities-and-ef-core.html">Domain Entities &amp; EF Core Configuration</a>
+  </p>
+</body>
+</html>

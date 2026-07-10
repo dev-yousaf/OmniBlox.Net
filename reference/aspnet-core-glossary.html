@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASP.NET Core Glossary & Clean Architecture Cheat Sheet</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <style>
+    .term { font-weight: 600; color: var(--accent); }
+    dt { margin-top: 1rem; font-weight: 600; }
+    dd { margin-left: 0; margin-bottom: 0.5rem; padding-left: 1rem; border-left: 2px solid var(--border); }
+    .nestjs-equiv { font-size: 0.85rem; color: var(--muted); }
+    .section-title { font-size: 1.1rem; font-weight: 700; margin-top: 2rem; padding-bottom: 0.25rem; border-bottom: 2px solid var(--accent); }
+  </style>
+</head>
+<body>
+  <p class="lesson-meta">
+    <span style="font-weight:700;color:var(--accent);">Reference</span> &middot;
+    ASP.NET Core Glossary &amp; Clean Architecture Cheat Sheet
+  </p>
+
+  <h1>ASP.NET Core Glossary</h1>
+
+  <p>
+    Terms you'll encounter throughout the OmniBlox migration, with NestJS equivalents
+    where applicable. Print-friendly for desk reference.
+  </p>
+
+  <h2 class="section-title">Architecture</h2>
+
+  <dl>
+    <dt><span class="term">Clean Architecture</span></dt>
+    <dd>
+      Organizes code into layers with strict dependency direction: outer layers depend on inner layers,
+      never vice versa. Inner layers know nothing about databases, HTTP, or UI.
+      <div class="nestjs-equiv">↳ NestJS equivalent: Module separation via <code>@Module()</code>, but enforced at compile time via project references.</div>
+    </dd>
+
+    <dt><span class="term">Dependency Inversion Principle (DIP)</span></dt>
+    <dd>
+      The "D" in SOLID. High-level modules should not depend on low-level modules — both should depend on abstractions.
+      In practice: Application defines interfaces, Infrastructure implements them.
+      <div class="nestjs-equiv">↳ NestJS equivalent: <code>@Injectable()</code> with interfaces — same concept, same reason.</div>
+    </dd>
+
+    <dt><span class="term">CQRS (Command Query Responsibility Segregation)</span></dt>
+    <dd>
+      Separates writes (Commands) from reads (Queries). Commands mutate state, Queries return data — never both in one handler.
+      <div class="nestjs-equiv">↳ NestJS equivalent: Manual service methods split (<code>createProduct()</code> vs <code>getProducts()</code>), but without the formal Command/Query classes.</div>
+    </dd>
+
+    <dt><span class="term">MediatR</span></dt>
+    <dd>
+      Library that implements the Mediator pattern in .NET. An <code>IRequest&lt;TResponse&gt;</code> (Command or Query) is sent via
+      <code>IMediator.Send()</code> and routed to its matching <code>IRequestHandler&lt;TRequest, TResponse&gt;</code>.
+      <div class="nestjs-equiv">↳ NestJS equivalent: A service method call, but MediatR decouples the caller from the handler — the controller never sees the handler class directly.</div>
+    </dd>
+
+    <dt><span class="term">Pipeline Behaviors</span></dt>
+    <dd>
+      MediatR middleware that runs on every Command/Query. Behaviors wrap the handler in a chain:
+      logging → validation → tenant injection → audit logging → handler.
+      <div class="nestjs-equiv">↳ NestJS equivalent: Guards + Interceptors combined into a single pipeline.</div>
+    </dd>
+
+    <dt><span class="term">Vertical Slices</span></dt>
+    <dd>
+      Organizing code by <em>feature</em> rather than by <em>layer</em>. In OmniBlox, each domain
+      (Products, Sales, etc.) has its own folder containing Commands, Queries, Handlers, and DTOs —
+      all in one place.
+      <div class="nestjs-equiv">↳ NestJS equivalent: Each module folder with its controller, service, and DTOs.</div>
+    </dd>
+  </dl>
+
+  <h2 class="section-title">ASP.NET Core Framework</h2>
+
+  <dl>
+    <dt><span class="term">Program.cs</span></dt>
+    <dd>
+      The application entry point. Configures services (DI), middleware pipeline, and hosts the app.
+      Equivalent to NestJS <code>main.ts</code> + <code>AppModule</code> combined.
+
+    </dd>
+
+    <dt><span class="term">Controller</span></dt>
+    <dd>
+      Handles HTTP requests and returns responses. Decorated with <code>[ApiController]</code> and
+      <code>[Route("…")]</code>. Methods map to HTTP verbs via <code>[HttpGet]</code>, <code>[HttpPost]</code>, etc.
+      <div class="nestjs-equiv">↳ NestJS equivalent: <code>@Controller()</code> — nearly identical concept.</div>
+    </dd>
+
+    <dt><span class="term">Dependency Injection (DI)</span></dt>
+    <dd>
+      Built into ASP.NET Core via <code>IServiceCollection</code>. Services are registered in
+      <code>Program.cs</code> or extension methods and constructor-injected.
+      Three lifetimes: <code>AddSingleton()</code>, <code>AddScoped()</code> (per request),
+      <code>AddTransient()</code> (per injection).
+      <div class="nestjs-equiv">↳ NestJS equivalent: <code>@Injectable({ scope: Scope.DEFAULT })</code> — but with <code>AddScoped</code> as the .NET default.</div>
+    </dd>
+
+    <dt><span class="term">Middleware</span></dt>
+    <dd>
+      Code that runs on every HTTP request/response as part of the pipeline. Examples:
+      exception handling, authentication, logging, CORS. Order matters — they run in registration order.
+      <div class="nestjs-equiv">↳ NestJS equivalent: <code>app.use()</code> global middleware + Guards + Interceptors.</div>
+    </dd>
+
+    <dt><span class="term">[Authorize]</span></dt>
+    <dd>
+      Attribute that requires authentication. Can specify roles: <code>[Authorize(Roles = "OWNER,ADMIN")]</code>.
+      Can be applied at controller or action level.
+      <div class="nestjs-equiv">↳ NestJS equivalent: <code>@UseGuards(AuthGuard)</code> + <code>@Roles()</code> decorator.</div>
+    </dd>
+
+    <dt><span class="term">[AllowAnonymous]</span></dt>
+    <dd>
+      Overrides <code>[Authorize]</code> on specific actions. Used for login, signup, password reset endpoints.
+      <div class="nestjs-equiv">↳ NestJS equivalent: <code>@AllowAnonymous()</code> decorator.</div>
+    </dd>
+  </dl>
+
+  <h2 class="section-title">Entity Framework Core</h2>
+
+  <dl>
+    <dt><span class="term">DbContext</span></dt>
+    <dd>
+      Main class for database interaction. Contains <code>DbSet&lt;T&gt;</code> properties
+      (one per entity). Registered with <code>AddDbContext&lt;T&gt;()</code> in DI.
+      <div class="nestjs-equiv">↳ NestJS equivalent: PrismaClient.</div>
+    </dd>
+
+    <dt><span class="term">DbSet&lt;T&gt;</span></dt>
+    <dd>
+      Represents a database table. Querying <code>DbSet&lt;Product&gt;</code> generates
+      <code>SELECT * FROM Products</code>. Adding to it stages an INSERT.
+      <div class="nestjs-equiv">↳ NestJS equivalent: <code>prisma.product.findMany()</code> / <code>prisma.product.create()</code>.</div>
+    </dd>
+
+    <dt><span class="term">Fluent API (IEntityTypeConfiguration&lt;T&gt;)</span></dt>
+    <dd>
+      Separate class per entity that configures table name, columns, keys, indexes, and relationships.
+      Better than data annotations because it keeps entity classes clean of infrastructure concerns.
+      <div class="nestjs-equiv">↳ NestJS equivalent: Prisma schema attributes: <code>@id</code>, <code>@unique</code>, <code>@relation</code>.</div>
+    </dd>
+
+    <dt><span class="term">Migrations</span></dt>
+    <dd>
+      Code-generated files that track database schema changes. Created with
+      <code>dotnet ef migrations add &lt;Name&gt;</code>, applied with
+      <code>dotnet ef database update</code>.
+      <div class="nestjs-equiv">↳ NestJS equivalent: <code>prisma migrate dev</code>.</div>
+    </dd>
+
+    <dt><span class="term">Global Query Filters</span></dt>
+    <dd>
+      EF Core feature for multi-tenancy. A filter like
+      <code>builder.HasQueryFilter(e => e.CompanyId == tenantId)</code> is automatically
+      applied to <em>every</em> query. You never manually add <code>.Where(e => e.CompanyId == id)</code>.
+      No NestJS/Prisma equivalent — this is manual in the TypeScript codebase.
+    </dd>
+
+    <dt><span class="term">Navigation Properties</span></dt>
+    <dd>
+      Object references between entities, e.g. <code>User.Company</code> (parent) and
+      <code>Company.Users</code> (collection). EF Core uses these to generate JOINs.
+      <div class="nestjs-equiv">↳ NestJS equivalent: Prisma relation fields like <code>company Company @relation(...)</code>.</div>
+    </dd>
+  </dl>
+
+  <h2 class="section-title">Common NuGet Packages</h2>
+
+  <table>
+    <tr><th>Package</th><th>What It Does</th><th>Replaces (NestJS)</th></tr>
+    <tr><td><code>MediatR</code></td><td>CQRS mediator — routes commands/queries to handlers</td><td>Service method calls</td></tr>
+    <tr><td><code>FluentValidation</code></td><td>Request validation with fluent rules</td><td><code>class-validator</code></td></tr>
+    <tr><td><code>Mapster</code></td><td>Object-to-object mapping (Entity → DTO)</td><td>Manual mapping</td></tr>
+    <tr><td><code>Serilog</code></td><td>Structured logging (JSON, files, console)</td><td>NestJS Logger</td></tr>
+    <tr><td><code>Npgsql.EntityFrameworkCore.PostgreSQL</code></td><td>PostgreSQL provider for EF Core</td><td>Prisma Client</td></tr>
+    <tr><td><code>Microsoft.AspNetCore.Authentication.JwtBearer</code></td><td>JWT token validation middleware</td><td>Better Auth</td></tr>
+    <tr><td><code>FluentEmail.Smtp</code></td><td>Email sending via SMTP</td><td>Nodemailer</td></tr>
+    <tr><td><code>Swashbuckle.AspNetCore</code></td><td>Swagger/OpenAPI UI</td><td>Swagger (NestJS CLI)</td></tr>
+  </table>
+
+  <h2 class="section-title">CLI Cheat Sheet</h2>
+
+  <table>
+    <tr><th>Command</th><th>What It Does</th></tr>
+    <tr><td><code>dotnet build</code></td><td>Compile the solution</td></tr>
+    <tr><td><code>dotnet run --project src/OmniBlox.Api</code></td><td>Run the API</td></tr>
+    <tr><td><code>dotnet ef migrations add &lt;Name&gt;</code></td><td>Create a new migration</td></tr>
+    <tr><td><code>dotnet ef database update</code></td><td>Apply pending migrations to DB</td></tr>
+    <tr><td><code>dotnet ef migrations list</code></td><td>Show all migrations</td></tr>
+    <tr><td><code>dotnet ef migrations remove</code></td><td>Remove the last migration</td></tr>
+    <tr><td><code>dotnet new classlib -n &lt;Name&gt; -o &lt;Path&gt;</code></td><td>Create a class library project</td></tr>
+    <tr><td><code>dotnet add &lt;Target&gt; reference &lt;Source&gt;</code></td><td>Add project reference</td></tr>
+    <tr><td><code>dotnet sln add &lt;Project&gt;</code></td><td>Add project to solution</td></tr>
+  </table>
+
+  <hr>
+
+  <p style="font-size:0.85rem; color:var(--muted);">
+    This reference will grow as we add more patterns. See also:
+    <a href="../lessons/0001-clean-architecture-and-project-structure.html">Lesson 1</a>,
+    <a href="../lessons/0002-domain-entities-and-ef-core.html">Lesson 2</a>.
+  </p>
+</body>
+</html>

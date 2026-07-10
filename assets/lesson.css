@@ -1,0 +1,135 @@
+/* OmniBlox Learning — Shared Lesson Stylesheet */
+/* Tufte-inspired: clean, readable, print-friendly */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #faf9f8;
+  --text: #1a1a2e;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --accent-light: #dbeafe;
+  --border: #e5e7eb;
+  --code-bg: #f3f4f6;
+  --success: #059669;
+  --warning: #d97706;
+  --max-width: 720px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111827;
+    --text: #f3f4f6;
+    --muted: #9ca3af;
+    --accent: #60a5fa;
+    --accent-light: #1e3a5f;
+    --border: #374151;
+    --code-bg: #1f2937;
+    --success: #34d399;
+    --warning: #fbbf24;
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text);
+  background: var(--bg);
+  padding: 2rem 1rem;
+  max-width: var(--max-width);
+  margin: 0 auto;
+}
+
+h1 { font-size: 2rem; font-weight: 700; line-height: 1.2; margin-bottom: 0.25rem; }
+h2 { font-size: 1.4rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; }
+h3 { font-size: 1.1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+p { margin-bottom: 1rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; border-bottom: 2px solid var(--border); }
+
+.lesson-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.lesson-number {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+code, pre {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.875rem;
+}
+
+code {
+  background: var(--code-bg);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+
+pre {
+  background: var(--code-bg);
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+}
+
+pre code { background: none; padding: 0; }
+
+.callout {
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--accent);
+  background: var(--accent-light);
+  color: var(--text);
+}
+
+.callout.warning {
+  border-left-color: var(--warning);
+  background: #fffbeb;
+  color: #1a1a2e;
+}
+
+.callout.success {
+  border-left-color: var(--success);
+  background: #ecfdf5;
+  color: #1a1a2e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .callout.warning {
+    background: #422006;
+    color: #fef3c7;
+  }
+
+  .callout.success {
+    background: #064e3b;
+    color: #d1fae5;
+  }
+}
+
+.callout p:last-child { margin-bottom: 0; }
+
+ul, ol { margin-bottom: 1rem; padding-left: 1.5rem; }
+li { margin-bottom: 0.3rem; }
+hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+@media print {
+  body { font-size: 12pt; padding: 0; }
+  pre { page-break-inside: avoid; }
+  h2, h3 { page-break-after: avoid; }
+}
