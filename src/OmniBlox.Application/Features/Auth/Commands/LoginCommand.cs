@@ -40,15 +40,33 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
         if (user.Status != UserStatus.ACTIVE)
             throw new UnauthorizedException("Account is not active.");
 
+        user.LastLoginAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+
         var token = _jwtService.GenerateToken(user, user.Company);
+
+        var companyDto = new CompanyDto
+        {
+            Id = user.Company.Id,
+            Name = user.Company.Name,
+            WorkspaceUrl = user.Company.WorkspaceUrl,
+            Industry = user.Company.Industry,
+            Country = user.Company.Country,
+        };
 
         return new AuthResponse
         {
             Token = token,
-            Email = user.Email,
-            Name = user.Name,
-            Role = user.Role.ToString(),
-            CompanyId = user.CompanyId
+            User = new UserDto
+            {
+                Id = user.Id,
+                Email = user.Email,
+                Name = user.Name,
+                Role = user.Role.ToString(),
+                CompanyId = user.CompanyId,
+                Company = companyDto,
+            },
+            Company = companyDto,
         };
     }
 }

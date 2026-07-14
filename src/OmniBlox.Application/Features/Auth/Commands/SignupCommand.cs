@@ -15,6 +15,9 @@ public record SignupCommand : IRequest<AuthResponse>
     public string Password { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public string CompanyName { get; init; } = string.Empty;
+    public string WorkspaceUrl { get; init; } = string.Empty;
+    public string? Industry { get; init; }
+    public string? Country { get; init; }
 }
 
 public class SignupCommandHandler : IRequestHandler<SignupCommand, AuthResponse>
@@ -40,6 +43,9 @@ public class SignupCommandHandler : IRequestHandler<SignupCommand, AuthResponse>
         {
             Name = request.CompanyName,
             Email = request.Email,
+            WorkspaceUrl = request.WorkspaceUrl,
+            Industry = request.Industry,
+            Country = request.Country,
         };
 
         _context.Companies.Add(company);
@@ -60,13 +66,28 @@ public class SignupCommandHandler : IRequestHandler<SignupCommand, AuthResponse>
 
         var token = _jwtService.GenerateToken(user, company);
 
+        var companyDto = new CompanyDto
+        {
+            Id = company.Id,
+            Name = company.Name,
+            WorkspaceUrl = company.WorkspaceUrl,
+            Industry = company.Industry,
+            Country = company.Country,
+        };
+
         return new AuthResponse
         {
             Token = token,
-            Email = user.Email,
-            Name = user.Name,
-            Role = user.Role.ToString(),
-            CompanyId = company.Id,
+            User = new UserDto
+            {
+                Id = user.Id,
+                Email = user.Email,
+                Name = user.Name,
+                Role = user.Role.ToString(),
+                CompanyId = user.CompanyId,
+                Company = companyDto,
+            },
+            Company = companyDto,
         };
     }
 }
@@ -88,5 +109,9 @@ public class SignupCommandValidator : AbstractValidator<SignupCommand>
 
         RuleFor(v => v.CompanyName)
             .NotEmpty().WithMessage("Company name is required.");
+
+        RuleFor(v => v.WorkspaceUrl)
+            .NotEmpty().WithMessage("Workspace URL is required.")
+            .Matches("^[a-z0-9-]+$").WithMessage("Workspace URL must be lowercase alphanumeric with dashes.");
     }
 }

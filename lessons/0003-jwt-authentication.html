@@ -17,44 +17,133 @@
 
   <p>
     In NestJS you used Better Auth with cookie-based sessions. In ASP.NET Core we'll use
-    <strong>JWT Bearer tokens</strong> — the user logs in, gets a signed JWT, and sends it
-    in the <code>Authorization: Bearer &lt;token&gt;</code> header on every request.
+    <strong>hybrid auth</strong> — the same JWT works via both <code>Authorization: Bearer &lt;token&gt;</code>
+    header (for API clients) and an HttpOnly cookie (for browser clients). On login/signup, the server
+    returns the JWT in the response body <em>and</em> sets an HttpOnly cookie. The JWT Bearer middleware
+    reads from either source.
   </p>
 
   <div class="callout">
-    <strong>Why JWT instead of cookies?</strong> JWTs are stateless — the server doesn't need to
-    store sessions in a database. All user info (id, email, role, companyId) is encoded in the
-    token itself and verified using a cryptographic signature. This is the same pattern Better Auth
-    can use, but we're implementing it manually.
+    <strong>Why hybrid?</strong> Browser clients benefit from HttpOnly cookies (they're sent automatically,
+    no JS token management, protected against XSS). API/mobile clients use the Bearer header. Both use
+    the same token, same validation, no duplication.
   </div>
 
   <h2>The Big Picture — Auth Flow</h2>
 
-  <pre style="line-height:2;">
-┌──────────┐     POST /auth/signup      ┌──────────────┐
-│  Client  │ ──────────────────────→   │  AuthController │
-│ (NextJS) │                           └──────┬───────┘
-│          │     POST /auth/login             │
-│          │ ──────────────────────→          │
-│          │                                  │ sends MediatR Command
-│          │                                  ▼
-│          │                         ┌──────────────────┐
-│          │                         │  LoginCommandHandler │
-│          │                         │  - queries DB for user │
-│          │                         │  - verifies password   │
-│          │                         │  - calls JwtService   │
-│          │                         │  - returns AuthResponse│
-│          │                         └──────────────────┘
-│          │                                  │
-│          │     ←─── { token, user } ────────┘
-│          │
-│          │     GET /auth/me (with Bearer token)
-│          │ ──────────────────────→
-│          │                         ┌──────────────────┐
-│          │                         │ JWT Middleware verifies │
-│          │                         │ signature + expiry     │
-│          │                         │ populates User claims  │
-│          │                         └──────────────────┘
+  <div class="story">
+    <div class="story-title">How a request flows through the system</div>
+    When the client sends <code>POST /auth/login</code>, the request enters the ASP.NET middleware pipeline, hits <code>AuthController</code>, which sends a MediatR command. The handler queries the database via <code>IApplicationDbContext</code>, verifies the password against the BCrypt hash, calls <code>IJwtService.GenerateToken()</code> to produce a signed JWT, and returns the token + user data.<br><br>
+    On subsequent requests like <code>GET /auth/me</code>, the client includes the JWT in the <code>Authorization: Bearer &lt;token&gt;</code> header. The JWT Bearer middleware intercepts the request <strong>before</strong> it reaches the controller — it validates the signature, checks expiry, reads the claims, and populates <code>HttpContext.User</code>. The handler reads the user's identity from <code>ICurrentUserService</code> (which wraps <code>HttpContext.User</code> claims) instead of from the request body. The controller never touches <code>HttpContext</code> directly — it stays clean and testable.
+    <div class="story-seq">File chain: AuthController.cs → LoginCommand.cs → LoginCommandHandler.cs → IApplicationDbContext.cs → AppDbContext.cs → IJwtService.cs → JwtService.cs</div>
+  </div>
+
+  <pre style="line-height:1.5; font-size:0.9rem;">
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ CLIENT (Next.js / curl / Postman)                                                                               │
+│   POST /auth/signup  { email, password, name, companyName, workspaceUrl, industry, country }                    │
+│   POST /auth/login   { email, password }                                                                        │
+│   GET  /auth/me      Authorization: Bearer &lt;token&gt;  —or—  HttpOnly cookie sent automatically                    │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ ExceptionHandlingMiddleware.InvokeAsync(HttpContext)                                                            │
+│  wraps all in try/catch; maps exceptions to HTTP status codes                                                   │
+│  UnauthorizedException → 401  │  NotFoundException → 404  │  ConflictException → 409  │  ValidationException → 400│
+│  anything else → 500                                                                                            │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ AuthController (Api)                                                                                            │
+│  Signup(req)    → new SignupCommand { Email, Password, Name, CompanyName, WorkspaceUrl, Industry, Country }     │
+│                    → _mediator.Send(command) → sets HttpOnly cookie on success                                  │
+│  Login(req)     → new LoginCommand { Email, Password }                                                          │
+│                    → _mediator.Send(command) → sets HttpOnly cookie on success                                   │
+│  Logout()       → deletes HttpOnly cookie                                                                       │
+│  GetMe()        → _mediator.Send(new GetCurrentUserQuery())  → returns UserDto (no token)                       │
+│  UpdateProfile  → _mediator.Send(UpdateProfileCommand)        → updates user/company fields                     │
+│  ChangePassword → _mediator.Send(ChangePasswordCommand)                                                        │
+│  ValidateToken  → _mediator.Send(ValidateTokenQuery)          → { valid, user }                                 │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │ IMediator.Send()
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ MediatR routes to the right handler (auto-discovered via RegisterServicesFromAssembly)                          │
+└───────────────────────────┬──────────────────────────────────┬──────────────────────────────────┬─────────────────┘
+                            │                                  │                                  │
+                            ▼                                  ▼                                  ▼
+┌──────────────────────────────────────────┐   ┌──────────────────────────────────────────┐   ┌──────────────────────┐
+│ LoginCommandHandler.Handle()             │   │ SignupCommandHandler.Handle()             │   │ GetCurrentUserHandler│
+│  .Include(u=>u.Company)                  │   │  1. Check duplicate email                │   │  query by UserId     │
+│  .FirstOrDefaultAsync(email)             │   │  2. new Company { Name, Email,            │   │  from JWT claims     │
+│  BCrypt.Verify() → 401 on fail           │   │       WorkspaceUrl, Industry, Country }   │   │  .Include(u=>u.Co)   │
+│  user.Status != ACTIVE → 401             │   │  3. new User {... OWNER, ACTIVE }         │   │  return UserDto {    │
+│  user.LastLoginAt = DateTime.UtcNow      │   │  4. _jwtService.GenerateToken(user,co)    │   │    Id, Email, Name,  │
+│  SaveChangesAsync()                      │   │  5. return AuthResponse { Token,          │   │    Role, CompanyId,  │
+│  _jwtService.GenerateToken(user,co)      │   │       User: { Id, Email, Name, Role,      │   │    Company: {...} }  │
+│  return AuthResponse { Token,            │   │         CompanyId, Company: {...} },      │   └──────────────────────┘
+│      User: { Id, Email, Name, Role,      │   │       Company: { Id, Name, WorkspaceUrl,  │
+│        CompanyId, Company: {...} },      │   │         Industry, Country } }             │
+│      Company: {...} }                    │   └──────────────────────────────────────────┘
+└──────────────────────────┬───────────────┘
+                           │                               ┌─────────────────────────────────────────────────────────┐
+                           ▼                               │ UpdateProfileHandler.Handle()                          │
+┌──────────────────────────────────────────────────────────┐│  query User + Company by UserId from JWT              │
+│ JwtService.GenerateToken(User, Company)                  ││  update only non-null fields (Name, CompanyName,      │
+│  Claims: NameIdentifier, Email, Role, Name,              ││  Industry, Country)                                   │
+│          "companyId", "companyName"                       ││  SaveChangesAsync() → return UserDto                  │
+│  Key: SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret))│└─────────────────────────────────────────────────────────┘
+│  Signing: HMAC-SHA256                                    │
+│  Token: JwtSecurityToken(issuer,audience,claims,expires) │  ┌─────────────────────────────────────────────────────────┐
+│  Return: JwtSecurityTokenHandler().WriteToken(token)     │  │ ChangePasswordHandler.Handle()                        │
+└──────────────────────────┬───────────────────────────────┘  │  query User by UserId from JWT                        │
+                           │                                  │  BCrypt.Verify(current) → 401 on fail                 │
+                           ▼                                  │  HashPassword(new) + SaveChangesAsync()                │
+┌────────────────────────────────────────────────────────────┐└─────────────────────────────────────────────────────────┘
+│ Controller sets HttpOnly cookie:                           │
+│  Response.Cookies.Append("access_token", token,            │  ┌─────────────────────────────────────────────────────┐
+│    { HttpOnly, SameSite=Lax, MaxAge=7d })                 │  │ ValidateTokenHandler.Handle()                        │
+│ Also returns AuthResponse in body for API clients          │  │  query User by UserId from JWT                      │
+└────────────────────────────────────────────────────────────┘  │  return { Valid: true/false, User: UserDto }         │
+                                                                 └─────────────────────────────────────────────────────┘
+
+              ═══════  SUBSEQUENT AUTHENTICATED REQUESTS  ═══════
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ CLIENT sends request  —  cookie sent automatically by browser  OR  Authorization: Bearer &lt;token&gt;  (API client)   │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ JWT Bearer Middleware (built-in ASP.NET middleware)                                                              │
+│  OnMessageReceived event: checks HttpOnly cookie "access_token" first, falls back to Authorization header       │
+│  1. Reads token from cookie OR Authorization header                                                              │
+│  2. Validates signature: HMAC-SHA256, symmetric key from Jwt:Secret in config                                   │
+│  3. Validates issuer: matches Jwt:Issuer from config                                                            │
+│  4. Validates audience: matches Jwt:Audience from config                                                        │
+│  5. Validates lifetime: token not expired                                                                       │
+│  On success: sets HttpContext.User with decoded claims from token                                               │
+│  On failure: short-circuits, returns HTTP 401, controller never runs                                            │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ CurrentUserService (Infrastructure) — reads claims from HttpContext.User via IHttpContextAccessor               │
+│  .UserId    → FindFirstValue(ClaimTypes.NameIdentifier)  →  Guid.Parse(value)                                  │
+│  .CompanyId → FindFirstValue("companyId")                →  Guid.Parse(value)                                   │
+│  .Role      → FindFirstValue(ClaimTypes.Role)            →  string  (or empty if missing)                      │
+│  .Email     → FindFirstValue(ClaimTypes.Email)           →  string  (or empty if missing)                      │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ GetCurrentUserQueryHandler.Handle()  (GET /auth/me)                                                             │
+│  _context.Users.Include(u=>u.Company).FirstOrDefaultAsync(u => u.Id == _currentUser.UserId)                     │
+│  Returns UserDto { Id, Email, Name, Role, CompanyId, Company: { Id, Name, WorkspaceUrl, Industry, Country } }   │
+│  Returns 404 if user was deleted since token was issued                                                         │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
   </pre>
 
   <h2>Architecture — Where Each Piece Lives</h2>
@@ -65,26 +154,17 @@
     <tr><td>Application</td><td><code>IApplicationDbContext</code></td><td>Interface exposing DbSets so handlers can query</td></tr>
     <tr><td>Application</td><td><code>IJwtService</code></td><td>Interface for token generation (impl in Infrastructure)</td></tr>
     <tr><td>Application</td><td><code>ICurrentUserService</code></td><td>Interface to access current user's claims</td></tr>
-    <tr><td>Application</td><td><code>LoginCommand</code>, <code>SignupCommand</code>, <code>GetCurrentUserQuery</code></td><td>CQRS handlers with business logic + validators</td></tr>
+    <tr><td>Application</td><td><code>LoginCommand</code>, <code>SignupCommand</code>, <code>GetCurrentUserQuery</code>, <code>UpdateProfileCommand</code>, <code>ChangePasswordCommand</code>, <code>ValidateTokenQuery</code></td><td>CQRS handlers with business logic + validators</td></tr>
     <tr><td>Infrastructure</td><td><code>JwtService</code></td><td>Actual JWT token generation (reads JwtSettings)</td></tr>
     <tr><td>Infrastructure</td><td><code>CurrentUserService</code></td><td>Extracts claims from HttpContext via IHttpContextAccessor</td></tr>
-    <tr><td>Api</td><td><code>AuthController</code></td><td>HTTP endpoints: signup, login, me</td></tr>
+    <tr><td>Api</td><td><code>AuthController</code></td><td>HTTP endpoints: signup, login, logout, me, profile, change-password, validate</td></tr>
     <tr><td>Api</td><td><code>ExceptionHandlingMiddleware</code></td><td>Catches exceptions, returns proper HTTP status codes</td></tr>
     <tr><td>Api</td><td><code>ClaimsPrincipalExtensions</code></td><td>Helper methods: <code>User.GetUserId()</code>, <code>User.GetCompanyId()</code></td></tr>
   </table>
 
-  <div class="callout">
-    <strong>Why interfaces in Application?</strong> This is the <strong>Dependency Inversion Principle</strong>
-    in action. Application defines <em>what</em> it needs (interfaces). Infrastructure provides
-    <em>how</em> (implementations). The Application layer never references Infrastructure directly.
-    If we switch from JWT to something else later, only Infrastructure changes.
-  </div>
-
   <hr>
 
   <h2>New NuGet Packages</h2>
-
-  <p>Two more packages needed before we start:</p>
 
   <pre>
 <span class="hljs-comment" style="color:var(--muted);"># EF Core in Application (so handlers can use IQueryable/Include)</span>
@@ -99,36 +179,37 @@ dotnet add src\OmniBlox.Infrastructure\OmniBlox.Infrastructure.csproj package BC
     wouldn't reference EF Core at all — it would use repository interfaces. But adding EF Core is a
     <strong>pragmatic trade-off</strong> that lets handlers use <code>.Include()</code>,
     <code>.FirstOrDefaultAsync()</code>, and <code>IQueryable</code> directly without writing
-    a repository per entity. This is what real-world Clean Architecture projects do
-    (including Microsoft's own reference architecture).
+    a repository per entity.
   </div>
 
   <hr>
 
-  <h2>Step 1: Custom Exception Types (Shared)</h2>
+  <!-- ============================================================
+       GROUP 1: Shared exceptions → Middleware catches them
+       ============================================================ -->
+  <h2>1. Exceptions (Shared) → Middleware (Api) catches them</h2>
 
   <p>
-    These are simple exception classes that our middleware will catch and convert to
-    proper HTTP responses. They live in <code>OmniBlox.Shared</code> because all layers
-    might need to throw them.
+    Custom exceptions thrown in Application handlers. The <strong>middleware</strong>
+    catches them and returns proper HTTP status codes.
   </p>
 
-  <p><strong>src/OmniBlox.Shared/Exceptions/UnauthorizedException.cs</strong></p>
-  <pre>
+  <div class="file-group">
+    <p class="file-group-title">Used by handlers (Application) → Caught by middleware (Api)</p>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Shared/Exceptions/UnauthorizedException.cs</div>
+      <pre>
 namespace OmniBlox.Shared.Exceptions;
 
 public class UnauthorizedException : Exception
 {
-    public UnauthorizedException(string message) : base(message) { }
+    public UnauthorizedException(string message)
+        : base(message) { }
 }</pre>
-
-  <div class="callout">
-    <strong>Syntax:</strong> A custom exception that just passes the message to the base
-    <code>Exception</code> class. We can catch this type specifically in middleware.
-  </div>
-
-  <p><strong>src/OmniBlox.Shared/Exceptions/NotFoundException.cs</strong></p>
-  <pre>
+    </div>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Shared/Exceptions/NotFoundException.cs</div>
+      <pre>
 namespace OmniBlox.Shared.Exceptions;
 
 public class NotFoundException : Exception
@@ -136,38 +217,116 @@ public class NotFoundException : Exception
     public NotFoundException(string name, object key)
         : base($"Entity \"{name}\" ({key}) was not found.") { }
 }</pre>
+    </div>
+    <div class="file-group-connector">
+      <code>UnauthorizedException</code> → 401. <code>NotFoundException</code> → 404. <code>ConflictException</code> → 409. Thrown by handlers, caught in middleware.
+    </div>
+  </div>
 
-  <p><strong>src/OmniBlox.Shared/Exceptions/ConflictException.cs</strong></p>
-  <pre>
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Shared/Exceptions/ConflictException.cs</div>
+    <pre>
 namespace OmniBlox.Shared.Exceptions;
 
 public class ConflictException : Exception
 {
     public ConflictException(string message) : base(message) { }
 }</pre>
+  </div>
+
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Api/Middleware/ExceptionHandlingMiddleware.cs</div>
+    <pre>
+using System.Net;
+using System.Text.Json;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Api.Middleware;
+
+public class ExceptionHandlingMiddleware
+{
+    private readonly RequestDelegate _next;
+
+    public ExceptionHandlingMiddleware(RequestDelegate next)
+    {
+        _next = next;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        try
+        {
+            await _next(context);
+        }
+        catch (Exception ex)
+        {
+            await HandleExceptionAsync(context, ex);
+        }
+    }
+
+    private static async Task HandleExceptionAsync(
+        HttpContext context, Exception ex)
+    {
+        var (statusCode, message) = ex switch
+        {
+            UnauthorizedException
+                => (HttpStatusCode.Unauthorized, ex.Message),
+            NotFoundException
+                => (HttpStatusCode.NotFound, ex.Message),
+            ConflictException
+                => (HttpStatusCode.Conflict, ex.Message),
+            FluentValidation.ValidationException validationEx
+                => (HttpStatusCode.BadRequest,
+                    validationEx.Errors.First().ErrorMessage),
+            _ => (HttpStatusCode.InternalServerError,
+                    "An error occurred.")
+        };
+
+        context.Response.ContentType = "application/json";
+        context.Response.StatusCode = (int)statusCode;
+
+        var result = JsonSerializer.Serialize(new
+        {
+            error = message,
+            statusCode = (int)statusCode
+        });
+
+        await context.Response.WriteAsync(result);
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Syntax breakdown — Middleware:</strong><br>
+    <code>var (statusCode, message) = ex switch { ... }</code> — C#'s <strong>switch expression</strong>
+    with <strong>tuple deconstruction</strong>. Checks the exception type and returns a tuple.
+    <code>_ =></code> is the default case (500).<br>
+    <strong>Note the <code>FluentValidation.ValidationException</code> case</strong> — sends validation errors as 400 instead of 500. This is easy to miss but important.
+  </div>
+
+  <div class="story">
+    <div class="story-title">What happens when a handler throws an exception</div>
+    When a handler does <code>throw new UnauthorizedException("Invalid email or password.")</code>, the exception propagates up through MediatR's pipeline, out of the controller action, and into the ASP.NET middleware pipeline. <code>ExceptionHandlingMiddleware</code> wraps <em>everything</em> below it in <code>try/catch</code> — so any unhandled exception from any controller action is caught here. The <code>ex switch { ... }</code> expression pattern-matches the exception type: <code>UnauthorizedException</code> → HTTP 401, <code>NotFoundException</code> → 404, <code>ConflictException</code> → 409, <code>FluentValidation.ValidationException</code> → 400, everything else → 500. The middleware writes a JSON response with <code>{"error": "...", "statusCode": 401}</code> directly to <code>HttpContext.Response</code> and short-circuits the pipeline — no controller code runs after the throw.
+    <div class="story-seq">File chain: LoginCommandHandler.cs / SignupCommandHandler.cs → AuthController.cs → ExceptionHandlingMiddleware.cs</div>
+  </div>
 
   <hr>
 
-  <h2>Step 2: Application Interfaces (DIP)</h2>
+  <!-- ============================================================
+       GROUP 2: Interface ↔ Implementation (DIP)
+       ============================================================ -->
+  <h2>2. Interfaces (Application) ↔ Implementations (Infrastructure) — DIP</h2>
 
   <p>
-    These interfaces live in <code>Application/Common/Interfaces/</code>. The Application
-    layer defines them, and the Infrastructure layer implements them. This is the
-    <strong>Dependency Inversion Principle</strong> — high-level modules (Application)
-    should not depend on low-level modules (Infrastructure), both should depend on
-    abstractions.
+    Application defines <em>what</em> it needs (interfaces). Infrastructure provides
+    <em>how</em> (implementations). Handlers depend on interfaces, never on Infrastructure directly.
   </p>
 
-  <h3>2a. IApplicationDbContext</h3>
-
-  <p>
-    This exposes the <code>DbSet&lt;T&gt;</code> properties that MediatR handlers need
-    to query the database. The real implementation (<code>AppDbContext</code>) already exists
-    in Infrastructure — we just need to make it implement this interface.
-  </p>
-
-  <p><strong>src/OmniBlox.Application/Common/Interfaces/IApplicationDbContext.cs</strong></p>
-  <pre>
+  <div class="file-group">
+    <p class="file-group-title">IApplicationDbContext (Application) ↔ AppDbContext (Infrastructure)</p>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Application/Common/Interfaces/IApplicationDbContext.cs</div>
+      <pre>
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Domain.Entities;
 
@@ -177,22 +336,47 @@ public interface IApplicationDbContext
 {
     DbSet&lt;Company&gt; Companies { get; }
     DbSet&lt;User&gt; Users { get; }
-    Task&lt;int&gt; SaveChangesAsync(CancellationToken cancellationToken = default);
+    Task&lt;int&gt; SaveChangesAsync(
+        CancellationToken cancellationToken = default);
 }</pre>
+    </div>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Infrastructure/Persistence/AppDbContext.cs</div>
+      <pre>
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
 
-  <div class="callout">
-    <strong>Syntax breakdown:</strong>
-    <code>DbSet&lt;Company&gt; Companies { get; }</code> — getter-only property that returns a
-    <code>DbSet</code>. In the real <code>AppDbContext</code>, this maps to the "Companies" table.
-    Handlers can write LINQ queries against it like <code>_context.Companies.FirstOrDefaultAsync(...)</code>.<br>
-    <code>Task&lt;int&gt; SaveChangesAsync(CancellationToken)</code> — needed for handlers that
-    create/update data. Returns the number of rows affected.
+namespace OmniBlox.Infrastructure.Persistence;
+
+public class AppDbContext : DbContext, IApplicationDbContext
+{
+    public AppDbContext(
+        DbContextOptions&lt;AppDbContext&gt; options)
+        : base(options) { }
+
+    public DbSet&lt;Company&gt; Companies => Set&lt;Company&gt;();
+    public DbSet&lt;User&gt; Users => Set&lt;User&gt;();
+
+    protected override void OnModelCreating(
+        ModelBuilder builder)
+    {
+        base.OnModelCreating(builder);
+        builder.ApplyConfigurationsFromAssembly(
+            typeof(AppDbContext).Assembly);
+    }
+}</pre>
+    </div>
+    <div class="file-group-connector">
+      AppDbContext was created in Lesson 2. Adding <code>, IApplicationDbContext</code> to the class declaration is the only change — existing <code>DbSet</code>s already satisfy the interface.
+    </div>
   </div>
 
-  <h3>2b. IJwtService</h3>
-
-  <p><strong>src/OmniBlox.Application/Common/Interfaces/IJwtService.cs</strong></p>
-  <pre>
+  <div class="file-group">
+    <p class="file-group-title">IJwtService (Application) ↔ JwtService (Infrastructure)</p>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Application/Common/Interfaces/IJwtService.cs</div>
+      <pre>
 using OmniBlox.Domain.Entities;
 
 namespace OmniBlox.Application.Common.Interfaces;
@@ -201,17 +385,81 @@ public interface IJwtService
 {
     string GenerateToken(User user, Company company);
 }</pre>
+    </div>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Infrastructure/Auth/JwtService.cs</div>
+      <pre>
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
 
-  <div class="callout">
-    <strong>Reasoning:</strong> The interface only declares <em>what</em> it does — generate a token
-    from a User and Company. The <em>how</em> (JWT format, signing key, expiry) is in Infrastructure.
-    If you switch to a different token format later, only the implementation changes.
+namespace OmniBlox.Infrastructure.Auth;
+
+public class JwtSettings
+{
+    public string Secret { get; set; } = string.Empty;
+    public string Issuer { get; set; } = string.Empty;
+    public string Audience { get; set; } = string.Empty;
+    public int ExpiryDays { get; set; } = 7;
+}
+
+public class JwtService : IJwtService
+{
+    private readonly JwtSettings _settings;
+
+    public JwtService(IOptions&lt;JwtSettings&gt; settings)
+    {
+        _settings = settings.Value;
+    }
+
+    public string GenerateToken(User user, Company company)
+    {
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier,
+                user.Id.ToString()),
+            new Claim(ClaimTypes.Email, user.Email),
+            new Claim(ClaimTypes.Role,
+                user.Role.ToString()),
+            new Claim(ClaimTypes.Name, user.Name),
+            new Claim("companyId",
+                company.Id.ToString()),
+            new Claim("companyName", company.Name),
+        };
+
+        var key = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(_settings.Secret));
+
+        var credentials = new SigningCredentials(
+            key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: _settings.Issuer,
+            audience: _settings.Audience,
+            claims: claims,
+            expires: DateTime.UtcNow
+                .AddDays(_settings.ExpiryDays),
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler()
+            .WriteToken(token);
+    }
+}</pre>
+    </div>
+    <div class="file-group-connector">
+      <strong>6 claims total:</strong> <code>NameIdentifier</code>, <code>Email</code>, <code>Role</code>, <code>Name</code>, <code>companyId</code>, <code>companyName</code>. <code>JwtSettings</code> is populated from <code>appsettings.json "Jwt"</code> via <code>IOptions&lt;T&gt;</code>.
+    </div>
   </div>
 
-  <h3>2c. ICurrentUserService</h3>
-
-  <p><strong>src/OmniBlox.Application/Common/Interfaces/ICurrentUserService.cs</strong></p>
-  <pre>
+  <div class="file-group">
+    <p class="file-group-title">ICurrentUserService (Application) ↔ CurrentUserService (Infrastructure)</p>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Application/Common/Interfaces/ICurrentUserService.cs</div>
+      <pre>
 namespace OmniBlox.Application.Common.Interfaces;
 
 public interface ICurrentUserService
@@ -221,77 +469,231 @@ public interface ICurrentUserService
     string Role { get; }
     string Email { get; }
 }</pre>
+    </div>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Infrastructure/Auth/CurrentUserService.cs</div>
+      <pre>
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
+using OmniBlox.Application.Common.Interfaces;
 
-  <div class="callout">
-    <strong>Reasoning:</strong> This abstracts away <code>HttpContext</code>. The Application
-    layer never touches HTTP — it just asks "who's the current user?" via this interface.
-    The Infrastructure implementation reads from the JWT claims, but a test implementation
-    could return fake data. This is how we keep the Application layer testable.
+namespace OmniBlox.Infrastructure.Auth;
+
+public class CurrentUserService : ICurrentUserService
+{
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public CurrentUserService(
+        IHttpContextAccessor httpContextAccessor)
+    {
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    public Guid UserId
+    {
+        get
+        {
+            var value = _httpContextAccessor
+                .HttpContext?.User
+                .FindFirstValue(
+                    ClaimTypes.NameIdentifier);
+
+            return value is not null
+                ? Guid.Parse(value)
+                : throw new UnauthorizedAccessException(
+                    "User not authenticated.");
+        }
+    }
+
+    public Guid CompanyId
+    {
+        get
+        {
+            var value = _httpContextAccessor
+                .HttpContext?.User
+                .FindFirstValue("companyId");
+
+            return value is not null
+                ? Guid.Parse(value)
+                : throw new UnauthorizedAccessException(
+                    "Company not found in claims.");
+        }
+    }
+
+    public string Role =>
+        _httpContextAccessor.HttpContext?.User
+            .FindFirstValue(ClaimTypes.Role)
+            ?? string.Empty;
+
+    public string Email =>
+        _httpContextAccessor.HttpContext?.User
+            .FindFirstValue(ClaimTypes.Email)
+            ?? string.Empty;
+}</pre>
+    </div>
+    <div class="file-group-connector">
+      Interface exposes <code>UserId</code>, <code>CompanyId</code>, <code>Role</code>, <code>Email</code>. Implementation reads them from JWT claims via <code>IHttpContextAccessor</code> — no <code>HttpContext</code> dependency in Application.
+    </div>
+  </div>
+
+  <div class="story">
+    <div class="story-title">How the three interface/implementation pairs work together</div>
+    <strong>1. IApplicationDbContext / AppDbContext:</strong> At DI registration time, <code>AddScoped&lt;IApplicationDbContext&gt;(sp =&gt; sp.GetRequiredService&lt;AppDbContext&gt;())</code> ensures both resolve to the <strong>same scoped instance</strong>. When a handler constructor receives <code>IApplicationDbContext</code>, DI hands it the single <code>AppDbContext</code> for this request. The handler queries <code>_context.Users</code> and <code>_context.Companies</code> against that one instance.<br><br>
+    <strong>2. IJwtService / JwtService:</strong> When a handler calls <code>_jwtService.GenerateToken(user, company)</code>, <code>JwtService</code> reads <code>JwtSettings</code> (populated from <code>appsettings.json</code> via <code>IOptions&lt;T&gt;</code>), builds a <code>SymmetricSecurityKey</code> from the secret, creates 6 claims (userId, email, role, name, companyId, companyName), signs the token with HMAC-SHA256, and serializes it to a compact JWT string. The token embeds the issuer, audience, and expiry — all of which the JWT middleware will validate on subsequent requests.<br><br>
+    <strong>3. ICurrentUserService / CurrentUserService:</strong> On an authenticated request, after JWT middleware has set <code>HttpContext.User</code>, <code>CurrentUserService</code> reads claims via <code>IHttpContextAccessor</code>. <code>UserId</code> reads <code>ClaimTypes.NameIdentifier</code> and parses it to <code>Guid</code>. <code>CompanyId</code> reads the custom <code>"companyId"</code> claim. If there's no authenticated user, it throws. This service is the <strong>only code that touches HttpContext</strong> — handlers stay completely HTTP-agnostic.
+    <div class="story-seq">File chain: DependencyInjection.cs → AppDbContext.cs → JwtService.cs → CurrentUserService.cs</div>
   </div>
 
   <hr>
 
-  <h2>Step 3: DTOs (Data Transfer Objects)</h2>
+  <!-- ============================================================
+       GROUP 3: DTOs + AuthResponse
+       ============================================================ -->
+  <h2>3. DTOs — data shapes for client communication</h2>
 
   <p>
-    DTOs are simple objects that carry data between the controller and the client.
-    In NestJS you'd use <code>class-validator</code> decorators — here we use
-    <strong>records</strong> (C# 9+). A record is an immutable data class with
-    value equality (two records with same values are equal).
+    DTOs define what the client sends and receives. <code>AuthResponse</code> is the return type
+    for all auth endpoints. <code>LoginRequest</code> and <code>SignupRequest</code> are the
+    request bodies. The Controller maps these to MediatR Commands.
   </p>
 
-  <p><strong>src/OmniBlox.Application/Features/Auth/DTOs/AuthResponse.cs</strong></p>
-  <pre>
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Application/Features/Auth/DTOs/AuthResponse.cs</div>
+    <pre>
 namespace OmniBlox.Application.Features.Auth.DTOs;
 
 public record AuthResponse
 {
     public string Token { get; init; } = string.Empty;
+    public UserDto User { get; init; } = null!;
+    public CompanyDto Company { get; init; } = null!;
+}
+
+public record UserDto
+{
+    public Guid Id { get; init; }
     public string Email { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public string Role { get; init; } = string.Empty;
     public Guid CompanyId { get; init; }
-}</pre>
+    public CompanyDto? Company { get; init; }
+}
 
-  <div class="callout">
-    <strong>Syntax:</strong> <code>public record AuthResponse</code> — a record type. Use
-    <code>{ get; init; }</code> instead of <code>{ get; set; }</code> for <strong>init-only</strong>
-    properties: they can be set during object initialization (with <code>{ Token = "..." }</code>)
-    but not modified afterwards. NestJS equivalent: a plain interface.
+public record CompanyDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string WorkspaceUrl { get; init; } = string.Empty;
+    public string? Industry { get; init; }
+    public string? Country { get; init; }
+}</pre>
   </div>
 
-  <p><strong>src/OmniBlox.Application/Features/Auth/DTOs/LoginRequest.cs</strong></p>
-  <pre>
-namespace OmniBlox.Application.Features.Auth.DTOs;
+  <div class="file-group">
+    <p class="file-group-title">LoginRequest (client) → LoginCommand (MediatR) — same shape</p>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Application/Features/Auth/DTOs/LoginRequest.cs</div>
+      <pre>
+namespace OmniBlox.Application
+    .Features.Auth.DTOs;
 
 public record LoginRequest
 {
-    public string Email { get; init; } = string.Empty;
-    public string Password { get; init; } = string.Empty;
+    public string Email { get; init; }
+        = string.Empty;
+    public string Password { get; init; }
+        = string.Empty;
 }</pre>
+    </div>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Application/Features/Auth/Commands/LoginCommand.cs</div>
+      <pre>
+public record LoginCommand
+    : IRequest&lt;AuthResponse&gt;
+{
+    public string Email { get; init; }
+        = string.Empty;
+    public string Password { get; init; }
+        = string.Empty;
+}</pre>
+    </div>
+    <div class="file-group-connector">
+      Controller reads <code>LoginRequest</code> → maps to <code>LoginCommand</code> → sends via <code>IMediator.Send(command)</code>.
+    </div>
+  </div>
 
-  <p><strong>src/OmniBlox.Application/Features/Auth/DTOs/SignupRequest.cs</strong></p>
-  <pre>
-namespace OmniBlox.Application.Features.Auth.DTOs;
+  <div class="file-group">
+    <p class="file-group-title">SignupRequest (client) → SignupCommand (MediatR) — same shape</p>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Application/Features/Auth/DTOs/SignupRequest.cs</div>
+      <pre>
+namespace OmniBlox.Application
+    .Features.Auth.DTOs;
 
 public record SignupRequest
 {
-    public string Email { get; init; } = string.Empty;
-    public string Password { get; init; } = string.Empty;
-    public string Name { get; init; } = string.Empty;
-    public string CompanyName { get; init; } = string.Empty;
+    public string Email { get; init; }
+        = string.Empty;
+    public string Password { get; init; }
+        = string.Empty;
+    public string Name { get; init; }
+        = string.Empty;
+    public string CompanyName { get; init; }
+        = string.Empty;
+    public string WorkspaceUrl { get; init; }
+        = string.Empty;
+    public string? Industry { get; init; }
+    public string? Country { get; init; }
 }</pre>
+    </div>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Application/Features/Auth/Commands/SignupCommand.cs</div>
+      <pre>
+public record SignupCommand
+    : IRequest&lt;AuthResponse&gt;
+{
+    public string Email { get; init; }
+        = string.Empty;
+    public string Password { get; init; }
+        = string.Empty;
+    public string Name { get; init; }
+        = string.Empty;
+    public string CompanyName { get; init; }
+        = string.Empty;
+}</pre>
+    </div>
+    <div class="file-group-connector">
+      Same pattern. Note all default values use <code>= string.Empty</code> (not <code>= ""</code>).
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Syntax — Records:</strong>
+    <code>public record AuthResponse</code> — a record type. Use <code>{ get; init; }</code> for
+    <strong>init-only</strong> properties: set during object initialization but not changed afterward.
+    NestJS equivalent: a plain interface or class with <code>readonly</code> properties.
+  </div>
+
+  <div class="story">
+    <div class="story-title">How DTOs flow through a request</div>
+    When the client sends <code>POST /auth/login</code> with a JSON body <code>{"email": "...", "password": "..."}</code>, ASP.NET's model binding deserializes the JSON into a <code>LoginRequest</code> record (init-only properties). The controller reads <code>request.Email</code> and <code>request.Password</code>, maps them to a <code>LoginCommand</code> record, and sends it via <code>IMediator.Send()</code>. After the handler runs, it constructs an <code>AuthResponse</code> record with token + profile data. ASP.NET serializes this to JSON in the response body. The DTOs are pure data shapes — no behavior, just properties. They define the contract between the HTTP layer and the application layer.
+    <div class="story-seq">File chain: AuthController.cs → LoginRequest.cs → LoginCommand.cs → LoginCommandHandler.cs → AuthResponse.cs</div>
+  </div>
 
   <hr>
 
-  <h2>Step 4: MediatR — Login Command + Handler + Validator</h2>
+  <!-- ============================================================
+       GROUP 4: LoginCommand (full file — Command + Handler + Validator)
+       ============================================================ -->
+  <h2>4. LoginCommand — Command + Handler + Validator</h2>
 
   <p>
-    In MediatR, a Command is a request that mutates state. We put the Command record,
-    its Handler, and its Validator in <strong>one file</strong> since they're always coupled.
+    One file bundles three things. The handler uses <code>IApplicationDbContext</code> to query,
+    <code>IJwtService</code> to generate the token, and throws <code>UnauthorizedException</code>
+    on invalid credentials.
   </p>
 
-  <p><strong>src/OmniBlox.Application/Features/Auth/Commands/LoginCommand.cs</strong></p>
+  <p><strong>src/OmniBlox.Application/Features/Auth/Commands/LoginCommand.cs</strong> (exact file content)</p>
   <pre>
 using FluentValidation;
 using MediatR;
@@ -303,14 +705,12 @@ using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.Auth.Commands;
 
-<span class="hljs-comment" style="color:var(--muted);">// ————— The Command (request) —————</span>
 public record LoginCommand : IRequest&lt;AuthResponse&gt;
 {
     public string Email { get; init; } = string.Empty;
     public string Password { get; init; } = string.Empty;
 }
 
-<span class="hljs-comment" style="color:var(--muted);">// ————— The Handler (business logic) —————</span>
 public class LoginCommandHandler : IRequestHandler&lt;LoginCommand, AuthResponse&gt;
 {
     private readonly IApplicationDbContext _context;
@@ -324,7 +724,6 @@ public class LoginCommandHandler : IRequestHandler&lt;LoginCommand, AuthResponse
 
     public async Task&lt;AuthResponse&gt; Handle(LoginCommand request, CancellationToken ct)
     {
-        <span class="hljs-comment" style="color:var(--muted);">// 1. Find user by email</span>
         var user = await _context.Users
             .Include(u =&gt; u.Company)
             .FirstOrDefaultAsync(u =&gt; u.Email == request.Email, ct);
@@ -332,30 +731,43 @@ public class LoginCommandHandler : IRequestHandler&lt;LoginCommand, AuthResponse
         if (user is null)
             throw new UnauthorizedException("Invalid email or password.");
 
-        <span class="hljs-comment" style="color:var(--muted);">// 2. Verify password with BCrypt</span>
         if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             throw new UnauthorizedException("Invalid email or password.");
 
-        <span class="hljs-comment" style="color:var(--muted);">// 3. Check account status</span>
         if (user.Status != UserStatus.ACTIVE)
             throw new UnauthorizedException("Account is not active.");
 
-        <span class="hljs-comment" style="color:var(--muted);">// 4. Generate JWT</span>
+        user.LastLoginAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+
         var token = _jwtService.GenerateToken(user, user.Company);
 
-        <span class="hljs-comment" style="color:var(--muted);">// 5. Return response</span>
+        var companyDto = new CompanyDto
+        {
+            Id = user.Company.Id,
+            Name = user.Company.Name,
+            WorkspaceUrl = user.Company.WorkspaceUrl,
+            Industry = user.Company.Industry,
+            Country = user.Company.Country,
+        };
+
         return new AuthResponse
         {
             Token = token,
-            Email = user.Email,
-            Name = user.Name,
-            Role = user.Role.ToString(),
-            CompanyId = user.CompanyId
+            User = new UserDto
+            {
+                Id = user.Id,
+                Email = user.Email,
+                Name = user.Name,
+                Role = user.Role.ToString(),
+                CompanyId = user.CompanyId,
+                Company = companyDto,
+            },
+            Company = companyDto,
         };
     }
 }
 
-<span class="hljs-comment" style="color:var(--muted);">// ————— The Validator (input validation) —————</span>
 public class LoginCommandValidator : AbstractValidator&lt;LoginCommand&gt;
 {
     public LoginCommandValidator()
@@ -371,29 +783,28 @@ public class LoginCommandValidator : AbstractValidator&lt;LoginCommand&gt;
 
   <div class="callout">
     <strong>Syntax breakdown — Handler:</strong><br>
-    <code>IRequestHandler&lt;LoginCommand, AuthResponse&gt;</code> — MediatR interface. The handler
-    receives a <code>LoginCommand</code> and returns <code>AuthResponse</code>. MediatR wires this
-    automatically — no manual routing.<br>
-    <code>_context.Users.Include(u =&gt; u.Company)</code> — EF Core eager-loads the Company
-    navigation property. Without <code>Include()</code>, <code>user.Company</code> would be null.<br>
-    <code>BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash)</code> — BCrypt hashes
-    the input password and compares it to the stored hash. Returns true/false.<br>
-    <code>throw new UnauthorizedException("...")</code> — our custom exception. The
-    <code>ExceptionHandlingMiddleware</code> will catch this and return HTTP 401.
+    <code>IRequestHandler&lt;LoginCommand, AuthResponse&gt;</code> — MediatR interface. Handler receives LoginCommand, returns AuthResponse. MediatR wires this automatically.<br>
+    <code>_context.Users.Include(u =&gt; u.Company)</code> — EF Core eager-loads the Company nav property. Without <code>Include()</code>, <code>user.Company</code> would be null.<br>
+    <code>BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash)</code> — hashes input and compares to stored hash.<br>
+    <code>throw new UnauthorizedException("...")</code> — middleware catches this and returns HTTP 401.
   </div>
 
-  <div class="callout">
-    <strong>Syntax breakdown — Validator:</strong>
-    <code>AbstractValidator&lt;LoginCommand&gt;</code> — FluentValidation's base class.
-    <code>RuleFor(v =&gt; v.Email).NotEmpty()</code> — reads like English: "Rule for Email:
-    must not be empty." NestJS equivalent: <code>@IsEmail()</code> decorator on the DTO.
+  <div class="story">
+    <div class="story-title">What happens when a user logs in</div>
+    When <code>POST /auth/login</code> arrives, the controller sends <code>LoginCommand</code> via <code>IMediator.Send()</code>. MediatR's pipeline runs <code>LoginCommandValidator</code> first — if validation fails (empty email or password), a <code>ValidationException</code> is thrown and caught by the middleware → 400. If valid, MediatR dispatches to <code>LoginCommandHandler</code>.<br><br>
+    The handler queries <code>_context.Users.Include(u =&gt; u.Company).FirstOrDefaultAsync(u =&gt; u.Email == request.Email)</code>. If no user is found → 401. If <code>BCrypt.Verify()</code> fails on the password hash → 401 (same message as "not found" to prevent email enumeration). If <code>user.Status != ACTIVE</code> → 401. All three failures go through the exception middleware path and return a consistent JSON error.<br><br>
+    On success, <code>_jwtService.GenerateToken(user, user.Company)</code> creates a signed JWT with 6 claims and a 7-day expiry. The handler returns <code>AuthResponse</code> with the token, email, name, role, and companyId — serialized to JSON and sent back to the client.
+    <div class="story-seq">File chain: AuthController.cs → LoginCommand.cs → LoginCommandHandler.cs → IApplicationDbContext.cs → AppDbContext.cs → IJwtService.cs → JwtService.cs</div>
   </div>
 
   <hr>
 
-  <h2>Step 5: MediatR — Signup Command + Handler + Validator</h2>
+  <!-- ============================================================
+       GROUP 5: SignupCommand
+       ============================================================ -->
+  <h2>5. SignupCommand — creates Company + User</h2>
 
-  <p><strong>src/OmniBlox.Application/Features/Auth/Commands/SignupCommand.cs</strong></p>
+  <p><strong>src/OmniBlox.Application/Features/Auth/Commands/SignupCommand.cs</strong> (exact file content)</p>
   <pre>
 using FluentValidation;
 using MediatR;
@@ -427,24 +838,24 @@ public class SignupCommandHandler : IRequestHandler&lt;SignupCommand, AuthRespon
 
     public async Task&lt;AuthResponse&gt; Handle(SignupCommand request, CancellationToken ct)
     {
-        <span class="hljs-comment" style="color:var(--muted);">// 1. Check for duplicate email</span>
         var existingUser = await _context.Users
             .AnyAsync(u =&gt; u.Email == request.Email, ct);
 
         if (existingUser)
             throw new ConflictException("Email is already registered.");
 
-        <span class="hljs-comment" style="color:var(--muted);">// 2. Create Company first (User needs CompanyId)</span>
         var company = new Company
         {
             Name = request.CompanyName,
             Email = request.Email,
+            WorkspaceUrl = request.WorkspaceUrl,
+            Industry = request.Industry,
+            Country = request.Country,
         };
 
         _context.Companies.Add(company);
         await _context.SaveChangesAsync(ct);
 
-        <span class="hljs-comment" style="color:var(--muted);">// 3. Create User with OWNER role</span>
         var user = new User
         {
             Email = request.Email,
@@ -458,16 +869,30 @@ public class SignupCommandHandler : IRequestHandler&lt;SignupCommand, AuthRespon
         _context.Users.Add(user);
         await _context.SaveChangesAsync(ct);
 
-        <span class="hljs-comment" style="color:var(--muted);">// 4. Generate token and return</span>
         var token = _jwtService.GenerateToken(user, company);
+
+        var companyDto = new CompanyDto
+        {
+            Id = company.Id,
+            Name = company.Name,
+            WorkspaceUrl = company.WorkspaceUrl,
+            Industry = company.Industry,
+            Country = company.Country,
+        };
 
         return new AuthResponse
         {
             Token = token,
-            Email = user.Email,
-            Name = user.Name,
-            Role = user.Role.ToString(),
-            CompanyId = company.Id,
+            User = new UserDto
+            {
+                Id = user.Id,
+                Email = user.Email,
+                Name = user.Name,
+                Role = user.Role.ToString(),
+                CompanyId = user.CompanyId,
+                Company = companyDto,
+            },
+            Company = companyDto,
         };
     }
 }
@@ -489,29 +914,36 @@ public class SignupCommandValidator : AbstractValidator&lt;SignupCommand&gt;
 
         RuleFor(v =&gt; v.CompanyName)
             .NotEmpty().WithMessage("Company name is required.");
+
+        RuleFor(v =&gt; v.WorkspaceUrl)
+            .NotEmpty().WithMessage("Workspace URL is required.")
+            .Matches("^[a-z0-9-]+$").WithMessage("Workspace URL must be lowercase alphanumeric with dashes.");
     }
 }</pre>
 
   <div class="callout">
-    <strong>Why create Company before User?</strong> Because <code>User.CompanyId</code> is a
-    foreign key. EF Core needs the Company to exist in the database first so it can generate
-    a <code>Guid</code> and assign it to the User. Two <code>SaveChangesAsync</code> calls,
-    two database round-trips — we could batch them, but this is clearer for learning.<br><br>
-    <strong>BCrypt.Net.BCrypt.HashPassword(password)</strong> — generates a salted hash
-    (about 60 characters). BCrypt automatically includes the salt in the output, so you
-    don't need to store it separately. NestJS equivalent: <code>bcrypt.hash(password, 10)</code>.
+    <strong>Key differences from Login:</strong><br>
+    Creates <code>Company</code> first (needs to exist for FK), then <code>User</code>. Two <code>SaveChangesAsync</code> calls.<br>
+    Password is <strong>hashed</strong> with <code>BCrypt.Net.BCrypt.HashPassword(request.Password)</code>.<br>
+    Throws <code>ConflictException</code> on duplicate email → middleware returns 409.<br>
+    Validator requires <code>MinimumLength(8)</code> for password.
+  </div>
+
+  <div class="story">
+    <div class="story-title">What happens when a new user signs up</div>
+    When <code>POST /auth/signup</code> arrives, the flow is similar to login but the handler is more complex. First it checks <code>_context.Users.AnyAsync(u =&gt; u.Email == request.Email)</code> — if the email already exists, it throws <code>ConflictException</code> → 409. Then it <code>new Company()</code> with the company name and email, calls <code>_context.Companies.Add(company)</code>, and <code>SaveChangesAsync()</code> to persist the company and get its generated <code>Id</code>.<br><br>
+    Next it creates a <code>new User()</code> with <code>BCrypt.Net.BCrypt.HashPassword(request.Password)</code> for the password hash, <code>Role = UserRole.OWNER</code>, <code>Status = UserStatus.ACTIVE</code>, and <code>CompanyId = company.Id</code>. It adds the user and saves again. Two <code>SaveChangesAsync</code> calls = two round-trips to PostgreSQL — both happen within the same <code>AppDbContext</code> scope, so they're in the same database transaction (EF Core uses ambient transactions by default). Finally it generates the JWT and returns <code>AuthResponse</code>.
+    <div class="story-seq">File chain: AuthController.cs → SignupCommand.cs → SignupCommandHandler.cs → IApplicationDbContext.cs → AppDbContext.cs → IJwtService.cs → JwtService.cs</div>
   </div>
 
   <hr>
 
-  <h2>Step 6: MediatR — GetCurrentUser Query</h2>
+  <!-- ============================================================
+       GROUP 6: GetCurrentUserQuery
+       ============================================================ -->
+  <h2>6. GetCurrentUserQuery — reads from JWT, not request body</h2>
 
-  <p>
-    Queries are like Commands but for reading data. No mutations. This one reads the user's
-    profile from the JWT claims (via <code>ICurrentUserService</code>).
-  </p>
-
-  <p><strong>src/OmniBlox.Application/Features/Auth/Queries/GetCurrentUserQuery.cs</strong></p>
+    <p><strong>src/OmniBlox.Application/Features/Auth/Queries/GetCurrentUserQuery.cs</strong> (exact file content)</p>
   <pre>
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -522,10 +954,10 @@ using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.Auth.Queries;
 
-public record GetCurrentUserQuery : IRequest&lt;AuthResponse&gt;;
+public record GetCurrentUserQuery : IRequest&lt;UserDto&gt;;
 
 public class GetCurrentUserQueryHandler
-    : IRequestHandler&lt;GetCurrentUserQuery, AuthResponse&gt;
+    : IRequestHandler&lt;GetCurrentUserQuery, UserDto&gt;
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
@@ -538,331 +970,59 @@ public class GetCurrentUserQueryHandler
         _currentUser = currentUser;
     }
 
-    public async Task&lt;AuthResponse&gt; Handle(
+    public async Task&lt;UserDto&gt; Handle(
         GetCurrentUserQuery request, CancellationToken ct)
     {
         var user = await _context.Users
+            .Include(u =&gt; u.Company)
             .FirstOrDefaultAsync(u =&gt; u.Id == _currentUser.UserId, ct);
 
         if (user is null)
             throw new NotFoundException(nameof(User), _currentUser.UserId);
 
-        return new AuthResponse
+        return new UserDto
         {
+            Id = user.Id,
             Email = user.Email,
             Name = user.Name,
             Role = user.Role.ToString(),
             CompanyId = user.CompanyId,
+            Company = new CompanyDto
+            {
+                Id = user.Company.Id,
+                Name = user.Company.Name,
+                WorkspaceUrl = user.Company.WorkspaceUrl,
+                Industry = user.Company.Industry,
+                Country = user.Company.Country,
+            },
         };
     }
 }</pre>
 
   <div class="callout">
-    <strong>How does the handler know the user ID?</strong> It doesn't come from the request!
-    The <code>GetCurrentUserQuery</code> is empty — no properties. Instead, the handler uses
-    <code>ICurrentUserService.UserId</code>, which reads from the JWT claims attached to the
-    HTTP request. The <code>CurrentUserService</code> (in Infrastructure) reads the
-    <code>HttpContext</code> to extract the user ID from the token.<br><br>
-    This is <strong>multi-tenant ready</strong>: <code>ICurrentUserService</code> also provides
-    <code>CompanyId</code>, which we'll use later for EF Core global query filters.
+    <strong>No request body needed:</strong> The query is empty (<code>public record GetCurrentUserQuery : IRequest&lt;UserDto&gt;;</code>).
+    The user's identity comes from the JWT token via <code>ICurrentUserService.UserId</code>.<br>
+    <strong>Now includes Company</strong> via <code>.Include(u =&gt; u.Company)</code> — returns nested <code>CompanyDto</code> with workspace info.
+  </div>
+
+  <div class="story">
+    <div class="story-title">What happens when the user hits GET /auth/me</div>
+    By the time <code>GET /auth/me</code> reaches the controller, the JWT middleware has already authenticated the request — <code>HttpContext.User</code> is populated with claims from the token (from either the cookie or Bearer header). The controller sends <code>new GetCurrentUserQuery()</code> — empty, no request body. The handler reads <code>_currentUser.UserId</code>, queries <code>_context.Users.Include(u =&gt; u.Company).FirstOrDefaultAsync(u =&gt; u.Id == userId)</code>, and returns the user's profile including the nested <code>CompanyDto</code> with <code>WorkspaceUrl</code>, <code>Industry</code>, and <code>Country</code>. If the user was deleted, <code>NotFoundException</code> → 404. No token is returned — <code>/me</code> is a profile endpoint.
+    <div class="story-seq">File chain: AuthController.cs → GetCurrentUserQuery.cs → GetCurrentUserQueryHandler.cs → ICurrentUserService.cs → CurrentUserService.cs → IApplicationDbContext.cs → AppDbContext.cs</div>
   </div>
 
   <hr>
 
-  <h2>Step 7: JwtService (Infrastructure)</h2>
+  <!-- ============================================================
+       GROUP 7: AuthController
+       ============================================================ -->
+  <h2>7. AuthController — thin HTTP layer</h2>
 
-  <p>
-    This is the actual implementation of <code>IJwtService</code>. It creates a JWT with
-    claims (pieces of data embedded in the token) and signs it with HMAC-SHA256.
-  </p>
-
-  <p><strong>src/OmniBlox.Infrastructure/Auth/JwtService.cs</strong></p>
-  <pre>
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
-using OmniBlox.Application.Common.Interfaces;
-using OmniBlox.Domain.Entities;
-
-namespace OmniBlox.Infrastructure.Auth;
-
-<span class="hljs-comment" style="color:var(--muted);">// Settings class — bound from appsettings.json "Jwt" section</span>
-public class JwtSettings
-{
-    public string Secret { get; set; } = string.Empty;
-    public string Issuer { get; set; } = string.Empty;
-    public string Audience { get; set; } = string.Empty;
-    public int ExpiryDays { get; set; } = 7;
-}
-
-public class JwtService : IJwtService
-{
-    private readonly JwtSettings _settings;
-
-    <span class="hljs-comment" style="color:var(--muted);">// IOptions&lt;T&gt; reads from appsettings.json via DI</span>
-    public JwtService(IOptions&lt;JwtSettings&gt; settings)
-    {
-        _settings = settings.Value;
-    }
-
-    public string GenerateToken(User user, Company company)
-    {
-        <span class="hljs-comment" style="color:var(--muted);">// 1. Define claims (data embedded in the token)</span>
-        var claims = new[]
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role.ToString()),
-            new Claim(ClaimTypes.Name, user.Name),
-            new Claim("companyId", company.Id.ToString()),
-            new Claim("companyName", company.Name),
-        };
-
-        <span class="hljs-comment" style="color:var(--muted);">// 2. Create signing key from secret</span>
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_settings.Secret));
-
-        <span class="hljs-comment" style="color:var(--muted);">// 3. Signing credentials (algorithm + key)</span>
-        var credentials = new SigningCredentials(
-            key, SecurityAlgorithms.HmacSha256);
-
-        <span class="hljs-comment" style="color:var(--muted);">// 4. Build the token</span>
-        var token = new JwtSecurityToken(
-            issuer: _settings.Issuer,
-            audience: _settings.Audience,
-            claims: claims,
-            expires: DateTime.UtcNow.AddDays(_settings.ExpiryDays),
-            signingCredentials: credentials);
-
-        <span class="hljs-comment" style="color:var(--muted);">// 5. Serialize to string</span>
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
-}</pre>
-
-  <div class="callout">
-    <strong>Syntax breakdown:</strong>
-    <code>IOptions&lt;JwtSettings&gt;</code> — the <strong>Options pattern</strong>. .NET automatically
-    binds the <code>"Jwt"</code> section from <code>appsettings.json</code> into a <code>JwtSettings</code>
-    object. In DI: <code>services.Configure&lt;JwtSettings&gt;(config.GetSection("Jwt"))</code>.
-    NestJS equivalent: <code>@nestjs/config</code>'s <code>ConfigService</code>.<br>
-    <code>ClaimTypes.NameIdentifier</code> — a standard claim type for user ID. When you access
-    <code>HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)</code>, you get the user's ID.<br>
-    <code>"companyId"</code> — a custom claim. Standard claims (<code>ClaimTypes</code>) don't include
-    multi-tenant data, so we add our own claim name as a string.<br>
-    <code>SecurityAlgorithms.HmacSha256</code> — the signing algorithm. HMAC-SHA256 is the standard
-    for symmetric JWT signing (same key signs and verifies).
-  </div>
-
-  <hr>
-
-  <h2>Step 8: CurrentUserService (Infrastructure)</h2>
-
-  <p>
-    Implements <code>ICurrentUserService</code> by reading the JWT claims from the HTTP context.
-    This is how handlers know who's making the request without touching HTTP directly.
-  </p>
-
-  <p><strong>src/OmniBlox.Infrastructure/Auth/CurrentUserService.cs</strong></p>
-  <pre>
-using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
-using OmniBlox.Application.Common.Interfaces;
-
-namespace OmniBlox.Infrastructure.Auth;
-
-public class CurrentUserService : ICurrentUserService
-{
-    private readonly IHttpContextAccessor _httpContextAccessor;
-
-    public CurrentUserService(IHttpContextAccessor httpContextAccessor)
-    {
-        _httpContextAccessor = httpContextAccessor;
-    }
-
-    public Guid UserId
-    {
-        get
-        {
-            var value = _httpContextAccessor.HttpContext?.User
-                .FindFirstValue(ClaimTypes.NameIdentifier);
-
-            return value is not null ? Guid.Parse(value)
-                : throw new UnauthorizedAccessException("User not authenticated.");
-        }
-    }
-
-    public Guid CompanyId
-    {
-        get
-        {
-            var value = _httpContextAccessor.HttpContext?.User
-                .FindFirstValue("companyId");
-
-            return value is not null ? Guid.Parse(value)
-                : throw new UnauthorizedAccessException("Company not found in claims.");
-        }
-    }
-
-    public string Role =>
-        _httpContextAccessor.HttpContext?.User
-            .FindFirstValue(ClaimTypes.Role) ?? string.Empty;
-
-    public string Email =>
-        _httpContextAccessor.HttpContext?.User
-            .FindFirstValue(ClaimTypes.Email) ?? string.Empty;
-}</pre>
-
-  <div class="callout">
-    <strong>Syntax breakdown:</strong>
-    <code>IHttpContextAccessor</code> — a special ASP.NET Core service that lets you access the
-    current HTTP request from outside a controller. Must be registered with
-    <code>builder.Services.AddHttpContextAccessor()</code> in Program.cs.<br>
-    <code>_httpContextAccessor.HttpContext?.User</code> — the <code>?</code> is a null-conditional
-    operator. If <code>HttpContext</code> is null (e.g., called from a background job), it returns
-    null instead of throwing.<br>
-    <code>FindFirstValue(ClaimTypes.NameIdentifier)</code> — searches the JWT claims for the
-    "NameIdentifier" claim (which we put in <code>JwtService</code> as the user's ID).
-    Returns the claim's value as a string.<br>
-    <code>?? string.Empty</code> — null-coalescing operator. If the claim doesn't exist,
-    return empty string instead of null.
-  </div>
-
-  <hr>
-
-  <h2>Step 9: ClaimsPrincipal Extensions (Api)</h2>
-
-  <p>
-    Helper methods so controllers can call <code>User.GetUserId()</code> instead of
-    <code>User.FindFirstValue(ClaimTypes.NameIdentifier)</code> everywhere.
-  </p>
-
-  <p><strong>src/OmniBlox.Api/Extensions/ClaimsPrincipalExtensions.cs</strong></p>
-  <pre>
-using System.Security.Claims;
-
-namespace OmniBlox.Api.Extensions;
-
-public static class ClaimsPrincipalExtensions
-{
-    public static Guid GetUserId(this ClaimsPrincipal user)
-    {
-        var value = user.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.Parse(value);
-    }
-
-    public static Guid GetCompanyId(this ClaimsPrincipal user)
-    {
-        var value = user.FindFirstValue("companyId");
-        return Guid.Parse(value);
-    }
-
-    public static string GetRole(this ClaimsPrincipal user)
-    {
-        return user.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
-    }
-}</pre>
-
-  <div class="callout">
-    <strong>Syntax:</strong> <code>this ClaimsPrincipal user</code> — an <strong>extension method</strong>.
-    Adds a <code>GetUserId()</code> method to any <code>ClaimsPrincipal</code> object.
-    You call it like <code>User.GetUserId()</code> as if it were a built-in method.
-    NestJS equivalent: a helper function <code>getUserId(user: ClaimsPrincipal)</code>.
-  </div>
-
-  <hr>
-
-  <h2>Step 10: Exception Handling Middleware (Api)</h2>
-
-  <p>
-    This middleware wraps every request in a try/catch. If a handler throws
-    <code>UnauthorizedException</code>, the middleware returns HTTP 401 instead of a 500 error.
-    In NestJS, you'd use an <code>ExceptionFilter</code> — same concept.
-  </p>
-
-  <p><strong>src/OmniBlox.Api/Middleware/ExceptionHandlingMiddleware.cs</strong></p>
-  <pre>
-using System.Net;
-using System.Text.Json;
-using OmniBlox.Shared.Exceptions;
-
-namespace OmniBlox.Api.Middleware;
-
-public class ExceptionHandlingMiddleware
-{
-    private readonly RequestDelegate _next;
-
-    public ExceptionHandlingMiddleware(RequestDelegate next)
-    {
-        _next = next;
-    }
-
-    public async Task InvokeAsync(HttpContext context)
-    {
-        try
-        {
-            await _next(context);
-        }
-        catch (Exception ex)
-        {
-            await HandleExceptionAsync(context, ex);
-        }
-    }
-
-    private static async Task HandleExceptionAsync(
-        HttpContext context, Exception ex)
-    {
-        <span class="hljs-comment" style="color:var(--muted);">// Map exception types to HTTP status codes</span>
-        var (statusCode, message) = ex switch
-        {
-            UnauthorizedException => (HttpStatusCode.Unauthorized, ex.Message),
-            NotFoundException => (HttpStatusCode.NotFound, ex.Message),
-            ConflictException => (HttpStatusCode.Conflict, ex.Message),
-            FluentValidation.ValidationException validationEx
-                => (HttpStatusCode.BadRequest,
-                    validationEx.Errors.First().ErrorMessage),
-            _ => (HttpStatusCode.InternalServerError, "An error occurred.")
-        };
-
-        context.Response.ContentType = "application/json";
-        context.Response.StatusCode = (int)statusCode;
-
-        var result = JsonSerializer.Serialize(new
-        {
-            error = message,
-            statusCode = (int)statusCode
-        });
-
-        await context.Response.WriteAsync(result);
-    }
-}</pre>
-
-  <div class="callout">
-    <strong>Syntax breakdown:</strong>
-    <code>RequestDelegate _next</code> — a function that calls the next middleware in the pipeline.
-    Like NestJS's <code>next()</code> in a guard.<br>
-    <code>var (statusCode, message) = ex switch { ... }</code> — C#'s <strong>switch expression</strong>
-    with <strong>tuple deconstruction</strong>. The <code>ex switch</code> checks the type of the
-    exception and returns a tuple <code>(HttpStatusCode, string)</code>. The <code>var (...)</code>
-    unpacks the tuple into two variables. NestJS equivalent: a switch statement in an ExceptionFilter.<br>
-    <code>FluentValidation.ValidationException validationEx</code> — pattern matching with a
-    variable declaration. If <code>ex</code> is a <code>ValidationException</code>, capture it
-    as <code>validationEx</code> and use it in the expression.<br>
-    <code>_ => (...)</code> — default case. Any unhandled exception type returns 500.
-  </div>
-
-  <hr>
-
-  <h2>Step 11: Auth Controller (Api)</h2>
-
-  <p>
-    The controller receives HTTP requests and delegates to MediatR. It's intentionally thin —
-    just routing + model binding. No business logic.
-  </p>
-
-  <p><strong>src/OmniBlox.Api/Controllers/AuthController.cs</strong></p>
-  <pre>
+  <div class="file-group">
+    <p class="file-group-title">AuthController → delegates to MediatR commands, sets HttpOnly cookie</p>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Api/Controllers/AuthController.cs</div>
+      <pre>
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -895,9 +1055,13 @@ public class AuthController : ControllerBase
             Password = request.Password,
             Name = request.Name,
             CompanyName = request.CompanyName,
+            WorkspaceUrl = request.WorkspaceUrl,
+            Industry = request.Industry,
+            Country = request.Country,
         };
 
         var result = await _mediator.Send(command, ct);
+        SetTokenCookie(result.Token);
         return Ok(result);
     }
 
@@ -914,74 +1078,461 @@ public class AuthController : ControllerBase
         };
 
         var result = await _mediator.Send(command, ct);
+        SetTokenCookie(result.Token);
         return Ok(result);
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    public ActionResult Logout()
+    {
+        Response.Cookies.Delete("access_token");
+        return Ok(new { message = "Logged out." });
     }
 
     [HttpGet("me")]
     [Authorize]
-    public async Task&lt;ActionResult&lt;AuthResponse&gt;&gt; GetMe(CancellationToken ct)
+    public async Task&lt;ActionResult&lt;UserDto&gt;&gt; GetMe(
+        CancellationToken ct)
     {
-        var result = await _mediator.Send(new GetCurrentUserQuery(), ct);
+        var result = await _mediator.Send(
+            new GetCurrentUserQuery(), ct);
         return Ok(result);
+    }
+
+    [HttpPut("profile")]
+    [Authorize]
+    public async Task&lt;ActionResult&lt;UserDto&gt;&gt; UpdateProfile(
+        UpdateProfileRequest request,
+        CancellationToken ct)
+    {
+        var command = new UpdateProfileCommand
+        {
+            Name = request.Name,
+            CompanyName = request.CompanyName,
+            Industry = request.Industry,
+            Country = request.Country,
+        };
+
+        var result = await _mediator.Send(command, ct);
+        return Ok(result);
+    }
+
+    [HttpPut("change-password")]
+    [Authorize]
+    public async Task&lt;ActionResult&gt; ChangePassword(
+        ChangePasswordRequest request,
+        CancellationToken ct)
+    {
+        var command = new ChangePasswordCommand
+        {
+            CurrentPassword = request.CurrentPassword,
+            NewPassword = request.NewPassword,
+        };
+
+        await _mediator.Send(command, ct);
+        return Ok(new { message = "Password changed." });
+    }
+
+    [HttpGet("validate")]
+    [Authorize]
+    public async Task&lt;ActionResult&lt;ValidateTokenResult&gt;&gt; ValidateToken(
+        CancellationToken ct)
+    {
+        var result = await _mediator.Send(
+            new ValidateTokenQuery(), ct);
+        return Ok(result);
+    }
+
+    private void SetTokenCookie(string token)
+    {
+        Response.Cookies.Append("access_token", token,
+            new CookieOptions
+            {
+                HttpOnly = true,
+                SameSite = SameSiteMode.Lax,
+                Secure = false,
+                MaxAge = TimeSpan.FromDays(7),
+            });
+    }
+}
+
+public record UpdateProfileRequest
+{
+    public string? Name { get; init; }
+    public string? CompanyName { get; init; }
+    public string? Industry { get; init; }
+    public string? Country { get; init; }
+}
+
+public record ChangePasswordRequest
+{
+    public string CurrentPassword { get; init; }
+        = string.Empty;
+    public string NewPassword { get; init; }
+        = string.Empty;
+}</pre>
+    </div>
+    <div class="file-panel">
+      <div class="file-panel-header">What each endpoint does:</div>
+      <pre>
+POST /auth/signup  [AllowAnonymous]
+  → maps SignupRequest → SignupCommand
+  → _mediator.Send()
+  → sets HttpOnly cookie + returns AuthResponse
+
+POST /auth/login   [AllowAnonymous]
+  → maps LoginRequest → LoginCommand
+  → _mediator.Send()
+  → sets HttpOnly cookie + returns AuthResponse
+
+POST /auth/logout  [Authorize]
+  → deletes HttpOnly cookie
+
+GET  /auth/me      [Authorize]
+  → sends GetCurrentUserQuery()
+  → returns UserDto (no token, profile only)
+
+PUT  /auth/profile [Authorize]
+  → sends UpdateProfileCommand
+  → updates name/companyName/industry/country
+
+PUT  /auth/change-password [Authorize]
+  → sends ChangePasswordCommand
+  → verifies current, hashes new
+
+GET  /auth/validate [Authorize]
+  → sends ValidateTokenQuery
+  → returns { valid, user }</pre>
+    </div>
+    <div class="file-group-connector">
+      <code>SetTokenCookie()</code> is called after every login/signup — sets HttpOnly cookie so browser clients authenticate automatically. API clients ignore cookies and use the Bearer header instead.
+      <code>[Authorize]</code> requires valid JWT (from either cookie or header).
+    </div>
+  </div>
+
+  <div class="story">
+    <div class="story-title">What happens when the controller receives a request</div>
+    ASP.NET routing matches the URL to the controller action based on <code>[Route]</code> and <code>[HttpPost("signup")]</code> attributes. For <code>POST /auth/signup</code>, it calls <code>Signup(SignupRequest request, CancellationToken ct)</code>. The <code>SignupRequest</code> is model-bound from the JSON body — ASP.NET automatically deserializes it. The controller manually maps each field to a new <code>SignupCommand</code> and calls <code>_mediator.Send(command, ct)</code>. MediatR dispatches to <code>SignupCommandHandler</code>. The controller is intentionally thin — it only maps DTOs to commands, sends them, and returns the result.<br><br>
+    After getting the result, <code>SetTokenCookie(result.Token)</code> appends an HttpOnly cookie named <code>access_token</code> to the response. Browser clients will attach this cookie automatically on subsequent requests (via <code>credentials: "include"</code>). API clients can ignore the cookie and use the <code>Authorization: Bearer</code> header instead — both work because the JWT middleware checks both sources.<br><br>
+    The <code>[Authorize]</code> attribute is enforced by the authorization middleware <strong>before</strong> the action executes — if no valid JWT is present (from either cookie or header), the middleware returns 401 and the action never runs. <code>[AllowAnonymous]</code> on Signup and Login bypasses this check.
+    <div class="story-seq">File chain: AuthController.cs → SignupCommand.cs / LoginCommand.cs / GetCurrentUserQuery.cs → respective handler</div>
+  </div>
+
+  <hr>
+
+  <!-- ============================================================
+       GROUP 8: UpdateProfileCommand
+       ============================================================ -->
+  <h2>8. UpdateProfileCommand — partial update of user/company</h2>
+
+  <p><strong>src/OmniBlox.Application/Features/Auth/Commands/UpdateProfileCommand.cs</strong> (exact file content)</p>
+  <pre>
+using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Auth.DTOs;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Auth.Commands;
+
+public record UpdateProfileCommand : IRequest&lt;UserDto&gt;
+{
+    public string? Name { get; init; }
+    public string? CompanyName { get; init; }
+    public string? Industry { get; init; }
+    public string? Country { get; init; }
+}
+
+public class UpdateProfileCommandHandler
+    : IRequestHandler&lt;UpdateProfileCommand, UserDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+
+    public UpdateProfileCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
+
+    public async Task&lt;UserDto&gt; Handle(
+        UpdateProfileCommand request, CancellationToken ct)
+    {
+        var user = await _context.Users
+            .Include(u =&gt; u.Company)
+            .FirstOrDefaultAsync(
+                u =&gt; u.Id == _currentUser.UserId, ct);
+
+        if (user is null)
+            throw new NotFoundException(
+                "User", _currentUser.UserId);
+
+        if (request.Name is not null)
+            user.Name = request.Name;
+
+        if (request.CompanyName is not null)
+            user.Company.Name = request.CompanyName;
+
+        if (request.Industry is not null)
+            user.Company.Industry = request.Industry;
+
+        if (request.Country is not null)
+            user.Company.Country = request.Country;
+
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+
+        return new UserDto
+        {
+            Id = user.Id,
+            Email = user.Email,
+            Name = user.Name,
+            Role = user.Role.ToString(),
+            CompanyId = user.CompanyId,
+            Company = new CompanyDto
+            {
+                Id = user.Company.Id,
+                Name = user.Company.Name,
+                WorkspaceUrl = user.Company.WorkspaceUrl,
+                Industry = user.Company.Industry,
+                Country = user.Company.Country,
+            },
+        };
     }
 }</pre>
 
   <div class="callout">
-    <strong>Syntax breakdown — Controller:</strong><br>
-    <code>[Route("auth")]</code> — all endpoints in this controller are prefixed with
-    <code>/auth</code>. NestJS equivalent: <code>@Controller('auth')</code>.<br>
-    <code>[ApiController]</code> — enables automatic model validation, binding, and
-    HTTP 400 responses. Without this, you'd need to check <code>ModelState.IsValid</code> manually.<br>
-    <code>[HttpPost("signup")]</code> — maps to <code>POST /auth/signup</code>.
-    NestJS equivalent: <code>@Post('signup')</code>.<br>
-    <code>[AllowAnonymous]</code> — anyone can call this endpoint without a token.
-    NestJS equivalent: <code>@AllowAnonymous()</code>.<br>
-    <code>[Authorize]</code> — requires a valid JWT. Returns HTTP 401 if missing/invalid.
-    NestJS equivalent: <code>@UseGuards(AuthGuard)</code>.<br>
-    <code>ActionResult&lt;AuthResponse&gt;</code> — the return type. <code>ActionResult</code>
-    allows returning both success (<code>Ok(result)</code>) and error (<code>NotFound()</code>)
-    responses. NestJS equivalent: <code>Promise&lt;AuthResponse&gt;</code>.
+    <strong>Partial update pattern:</strong> Each field is nullable (<code>string?</code>). Only non-null fields are
+    applied — the client sends only what it wants to change. Unlike Login/Signup, this handler
+    <strong>does not generate a new token</strong> — it returns the updated profile via <code>UserDto</code>.
   </div>
 
   <hr>
 
-  <h2>Step 12: Update AppDbContext (implement IApplicationDbContext)</h2>
+  <!-- ============================================================
+       GROUP 9: ChangePasswordCommand
+       ============================================================ -->
+  <h2>9. ChangePasswordCommand — verify current, hash new</h2>
 
-  <p>
-    Add <code>, IApplicationDbContext</code> to the existing <code>AppDbContext</code> class.
-  </p>
-
-  <p><strong>src/OmniBlox.Infrastructure/Persistence/AppDbContext.cs</strong></p>
+  <p><strong>src/OmniBlox.Application/Features/Auth/Commands/ChangePasswordCommand.cs</strong> (exact file content)</p>
   <pre>
+using FluentValidation;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
-<b>using OmniBlox.Application.Common.Interfaces;</b>
-using OmniBlox.Domain.Entities;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Shared.Exceptions;
 
-namespace OmniBlox.Infrastructure.Persistence;
+namespace OmniBlox.Application.Features.Auth.Commands;
 
-public class AppDbContext : DbContext<b>, IApplicationDbContext</b>
+public record ChangePasswordCommand : IRequest
 {
-    // ... rest stays the same
+    public string CurrentPassword { get; init; }
+        = string.Empty;
+    public string NewPassword { get; init; }
+        = string.Empty;
+}
+
+public class ChangePasswordCommandHandler
+    : IRequestHandler&lt;ChangePasswordCommand&gt;
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+
+    public ChangePasswordCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
+
+    public async Task Handle(
+        ChangePasswordCommand request, CancellationToken ct)
+    {
+        var user = await _context.Users
+            .FirstOrDefaultAsync(
+                u =&gt; u.Id == _currentUser.UserId, ct);
+
+        if (user is null)
+            throw new NotFoundException(
+                "User", _currentUser.UserId);
+
+        if (!BCrypt.Net.BCrypt.Verify(
+                request.CurrentPassword, user.PasswordHash))
+            throw new UnauthorizedException(
+                "Current password is incorrect.");
+
+        user.PasswordHash = BCrypt.Net.BCrypt
+            .HashPassword(request.NewPassword);
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+    }
+}
+
+public class ChangePasswordCommandValidator
+    : AbstractValidator&lt;ChangePasswordCommand&gt;
+{
+    public ChangePasswordCommandValidator()
+    {
+        RuleFor(v =&gt; v.CurrentPassword)
+            .NotEmpty()
+            .WithMessage("Current password is required.");
+
+        RuleFor(v =&gt; v.NewPassword)
+            .NotEmpty()
+            .WithMessage("New password is required.")
+            .MinimumLength(8)
+            .WithMessage("New password must be at least 8 characters.");
+    }
 }</pre>
 
   <div class="callout">
-    <strong>What changed:</strong> The class now <em>also</em> implements <code>IApplicationDbContext</code>.
-    Since it already had <code>DbSet&lt;Company&gt; Companies</code> and <code>DbSet&lt;User&gt; Users</code>,
-    the interface is already satisfied — no additional code needed. The <code>SaveChangesAsync</code>
-    method is inherited from <code>DbContext</code>.
+    <strong>IRequest (no return value):</strong> Unlike other handlers that return a DTO, this one
+    implements <code>IRequest</code> (not <code>IRequest&lt;T&gt;</code>) — MediatR sends it and
+    expects no return data. The controller returns <code>Ok(new { message })</code> instead.
   </div>
 
   <hr>
 
-  <h2>Step 13: Application DI Registration</h2>
+  <!-- ============================================================
+       GROUP 10: ValidateTokenQuery
+       ============================================================ -->
+  <h2>10. ValidateTokenQuery — check if session is still valid</h2>
 
-  <p>
-    Registers MediatR (discovers all handlers) and FluentValidation (discovers all validators)
-    in the Application assembly.
-  </p>
-
-  <p><strong>src/OmniBlox.Application/DependencyInjection.cs</strong></p>
+  <p><strong>src/OmniBlox.Application/Features/Auth/Queries/ValidateTokenQuery.cs</strong> (exact file content)</p>
   <pre>
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Auth.DTOs;
+
+namespace OmniBlox.Application.Features.Auth.Queries;
+
+public record ValidateTokenQuery
+    : IRequest&lt;ValidateTokenResult&gt;;
+
+public record ValidateTokenResult
+{
+    public bool Valid { get; init; }
+    public UserDto User { get; init; } = null!;
+}
+
+public class ValidateTokenQueryHandler
+    : IRequestHandler&lt;ValidateTokenQuery, ValidateTokenResult&gt;
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+
+    public ValidateTokenQueryHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
+
+    public async Task&lt;ValidateTokenResult&gt; Handle(
+        ValidateTokenQuery request, CancellationToken ct)
+    {
+        var user = await _context.Users
+            .Include(u =&gt; u.Company)
+            .FirstOrDefaultAsync(
+                u =&gt; u.Id == _currentUser.UserId, ct);
+
+        if (user is null)
+            return new ValidateTokenResult
+                { Valid = false, User = null! };
+
+        return new ValidateTokenResult
+        {
+            Valid = true,
+            User = new UserDto
+            {
+                Id = user.Id,
+                Email = user.Email,
+                Name = user.Name,
+                Role = user.Role.ToString(),
+                CompanyId = user.CompanyId,
+                Company = new CompanyDto
+                {
+                    Id = user.Company.Id,
+                    Name = user.Company.Name,
+                    WorkspaceUrl = user.Company.WorkspaceUrl,
+                    Industry = user.Company.Industry,
+                    Country = user.Company.Country,
+                },
+            },
+        };
+    }
+}</pre>
+
+  <div class="callout">
+    <strong>No exceptions on invalid token:</strong> Unlike <code>GetCurrentUserQuery</code> which throws
+    <code>NotFoundException</code>, this handler returns <code>{ valid: false }</code> gracefully.
+    The frontend uses this on app startup to check whether the stored session is still valid without
+    triggering an error toast.
+  </div>
+
+  <hr>
+
+  <!-- ============================================================
+       GROUP 11: ClaimsPrincipalExtensions
+       ============================================================ -->
+  <h2>11. ClaimsPrincipal Extensions — helper methods</h2>
+
+  <p><strong>src/OmniBlox.Api/Extensions/ClaimsPrincipalExtensions.cs</strong> (exact file content)</p>
+  <pre>
+using System.Security.Claims;
+
+namespace OmniBlox.Api.Extensions;
+
+public static class ClaimsPrincipalExtensions
+{
+    public static Guid GetUserId(this ClaimsPrincipal user)
+    {
+        var value = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.Parse(value);
+    }
+
+    public static Guid GetCompanyId(this ClaimsPrincipal user)
+    {
+        var value = user.FindFirstValue("companyId");
+        return Guid.Parse(value);
+    }
+
+    public static string GetRole(this ClaimsPrincipal user)
+    {
+        return user.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+    }
+}</pre>
+
+  <div class="callout">
+    <strong>Syntax:</strong> <code>this ClaimsPrincipal user</code> — <strong>extension method</strong>.
+    Adds <code>GetUserId()</code> to any <code>ClaimsPrincipal</code>. Called like <code>User.GetUserId()</code>.
+  </div>
+
+  <div class="story">
+    <div class="story-title">How extension methods work at runtime</div>
+    These extension methods add <code>GetUserId()</code>, <code>GetCompanyId()</code>, and <code>GetRole()</code> to any <code>ClaimsPrincipal</code> object. Inside a controller action, you call them like <code>User.GetUserId()</code> as if they were built-in methods. Each method reads a specific claim by type: <code>ClaimTypes.NameIdentifier</code>, <code>"companyId"</code>, or <code>ClaimTypes.Role</code>. If a claim is missing, <code>Guid.Parse()</code> throws (for ID methods) or <code>string.Empty</code> is returned (for Role). These are convenience helpers — the same logic exists in <code>CurrentUserService</code> for the Application layer, but controllers can use these without needing the service injected.
+    <div class="story-seq">File chain: ClaimsPrincipalExtensions.cs → used in AuthController.cs</div>
+  </div>
+
+  <hr>
+
+  <!-- ============================================================
+       GROUP 12: DI registrations
+       ============================================================ -->
+  <h2>12. Dependency Injection — all three layers</h2>
+
+  <div class="file-group">
+    <p class="file-group-title">Application DI (MediatR + FluentValidation auto-discovery)</p>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Application/DependencyInjection.cs</div>
+      <pre>
 using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
@@ -1003,32 +1554,34 @@ public static class DependencyInjection
         return services;
     }
 }</pre>
+    </div>
+    <div class="file-panel">
+      <div class="file-panel-header">Auto-discovered by scanning the assembly:</div>
+      <pre>
+MediatR finds:
+  LoginCommandHandler
+  SignupCommandHandler
+  GetCurrentUserQueryHandler
+  (any IRequestHandler&lt;,&gt;)
 
-  <div class="callout">
-    <strong>Syntax:</strong>
-    <code>RegisterServicesFromAssembly</code> — scans the Application assembly for all
-    <code>IRequestHandler&lt;,&gt;</code> implementations and registers them with MediatR.
-    Every command/query handler is auto-discovered — no manual registration needed.<br>
-    <code>AddValidatorsFromAssembly</code> — scans for <code>AbstractValidator&lt;&gt;</code>
-    implementations. Works with FluentValidation's automatic validation pipeline.
+FluentValidation finds:
+  LoginCommandValidator
+  SignupCommandValidator
+  (any AbstractValidator&lt;T&gt;)</pre>
+    </div>
+    <div class="file-group-connector">
+      <code>RegisterServicesFromAssembly</code> scans for handlers. <code>AddValidatorsFromAssembly</code> scans for validators. No manual registration of individual handlers.
+    </div>
   </div>
 
-  <hr>
-
-  <h2>Step 14: Update Infrastructure DI</h2>
-
-  <p>
-    Register <code>IApplicationDbContext</code>, <code>IJwtService</code>, <code>ICurrentUserService</code>,
-    and bind <code>JwtSettings</code> from configuration.
-  </p>
-
-  <p><strong>src/OmniBlox.Infrastructure/DependencyInjection.cs</strong> (updated)</p>
-  <pre>
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Infrastructure/DependencyInjection.cs</div>
+    <pre>
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-<b>using OmniBlox.Application.Common.Interfaces;
-using OmniBlox.Infrastructure.Auth;</b>
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Infrastructure.Auth;
 using OmniBlox.Infrastructure.Persistence;
 
 namespace OmniBlox.Infrastructure;
@@ -1042,58 +1595,51 @@ public static class DependencyInjection
         services.AddDbContext&lt;AppDbContext&gt;(options =&gt;
             options.UseNpgsql(
                 configuration.GetConnectionString("Postgres"),
-                b =&gt; b.MigrationsAssembly(
-                    typeof(AppDbContext).Assembly.FullName)));
+                b =&gt; b.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
 
-        <span class="hljs-comment" style="color:var(--muted);">// Register DbContext as IApplicationDbContext</span>
-        <b>services.AddScoped&lt;IApplicationDbContext&gt;(sp =&gt;
-            sp.GetRequiredService&lt;AppDbContext&gt;());</b>
+        services.AddScoped&lt;IApplicationDbContext&gt;(sp =&gt;
+            sp.GetRequiredService&lt;AppDbContext&gt;());
 
-        <span class="hljs-comment" style="color:var(--muted);">// Register current user service</span>
-        <b>services.AddScoped&lt;ICurrentUserService, CurrentUserService&gt;();
+        services.AddScoped&lt;ICurrentUserService, CurrentUserService&gt;();
 
-        <span class="hljs-comment" style="color:var(--muted);">// Bind JwtSettings from appsettings.json "Jwt" section</span>
         services.Configure&lt;JwtSettings&gt;(
             configuration.GetSection("Jwt"));
 
-        <span class="hljs-comment" style="color:var(--muted);">// Register JWT service</span>
-        services.AddScoped&lt;IJwtService, JwtService&gt;();</b>
+        services.AddScoped&lt;IJwtService, JwtService&gt;();
 
         return services;
     }
 }</pre>
+  </div>
 
   <div class="callout">
     <strong>Why the factory pattern for IApplicationDbContext?</strong>
-    <code>AddScoped&lt;IApplicationDbContext&gt;(sp =&gt;
-    sp.GetRequiredService&lt;AppDbContext&gt;())</code> — this tells DI: "when someone asks
-    for <code>IApplicationDbContext</code>, give them the same <code>AppDbContext</code>
-    instance that's already registered." Without this, you'd need to register both
-    <code>AppDbContext</code> and <code>IApplicationDbContext</code> separately, which
-    would create two separate instances (bad — you'd have two databases open).
-    <code>AddScoped</code> means one instance per HTTP request.
+    <code>AddScoped&lt;IApplicationDbContext&gt;(sp =&gt; sp.GetRequiredService&lt;AppDbContext&gt;())</code>
+    ensures that both <code>AppDbContext</code> and <code>IApplicationDbContext</code> resolve to the
+    <strong>same instance</strong>. Otherwise you'd get two separate DB connections per request.
+  </div>
+
+  <div class="story">
+    <div class="story-title">How DI registration affects the running app</div>
+    When <code>Program.cs</code> calls <code>builder.Services.AddApplication()</code>, the extension method calls <code>AddMediatR(cfg =&gt; cfg.RegisterServicesFromAssembly(...))</code> which scans the Application assembly for all <code>IRequestHandler&lt;,&gt;</code> implementations (<code>LoginCommandHandler</code>, <code>SignupCommandHandler</code>, <code>GetCurrentUserQueryHandler</code>) and registers them. <code>AddValidatorsFromAssembly</code> does the same for <code>AbstractValidator&lt;T&gt;</code> classes. No individual handler or validator needs manual registration — they're all auto-discovered.<br><br>
+    When <code>AddInfrastructure(...)</code> runs, it registers <code>AppDbContext</code> (scoped), <code>IApplicationDbContext</code> → same scoped <code>AppDbContext</code>, <code>ICurrentUserService → CurrentUserService</code> (scoped), <code>IJwtService → JwtService</code> (scoped), and binds <code>JwtSettings</code> from config. The factory for <code>IApplicationDbContext</code> guarantees that both the <code>AppDbContext</code> registration and the <code>IApplicationDbContext</code> registration resolve to the exact same instance per request — no duplicate connections. When a handler constructor asks for <code>IApplicationDbContext</code>, DI hands it the same <code>AppDbContext</code> that was created for this request.
+    <div class="story-seq">File chain: Program.cs → DependencyInjection.cs (Application) → DependencyInjection.cs (Infrastructure) → AppDbContext.cs → JwtService.cs → CurrentUserService.cs</div>
   </div>
 
   <hr>
 
-  <h2>Step 15: Update Program.cs — The Final Pipeline</h2>
+  <!-- ============================================================
+       GROUP 10: Program.cs
+       ============================================================ -->
+  <h2>13. Program.cs — the complete pipeline</h2>
 
-  <p>
-    This is the most important step. We need to:<br>
-    1. Register <code>AddApplication()</code> (MediatR + FluentValidation)<br>
-    2. Register <code>IHttpContextAccessor</code><br>
-    3. Configure JWT authentication<br>
-    4. Add <code>ExceptionHandlingMiddleware</code> (before everything — catch all errors)<br>
-    5. Add <code>app.UseAuthentication()</code> (before Authorization!)
-  </p>
-
-  <p><strong>src/OmniBlox.Api/Program.cs</strong></p>
+  <p><strong>src/OmniBlox.Api/Program.cs</strong> (exact file content)</p>
   <pre>
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using OmniBlox.Api.Middleware;
-<b>using OmniBlox.Application;</b>
+using OmniBlox.Application;
 using OmniBlox.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -1101,14 +1647,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-<span class="hljs-comment" style="color:var(--muted);">// Register our application layer (MediatR + validators)</span>
-<b>builder.Services.AddApplication();</b>
+builder.Services.AddHttpContextAccessor();
 
-<span class="hljs-comment" style="color:var(--muted);">// Required for CurrentUserService to access HttpContext</span>
-<b>builder.Services.AddHttpContextAccessor();</b>
+builder.Services.AddApplication();
 
-<span class="hljs-comment" style="color:var(--muted);">// Configure JWT authentication</span>
-<b>builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =&gt;
     {
         options.TokenValidationParameters = new TokenValidationParameters
@@ -1120,12 +1663,24 @@ builder.Services.AddOpenApi();
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(
-                    builder.Configuration["Jwt:Secret"]!)),
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!)),
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =&gt;
+            {
+                var token = context.Request.Cookies["access_token"];
+                if (!string.IsNullOrEmpty(token))
+                {
+                    context.Token = token;
+                }
+                return Task.CompletedTask;
+            }
         };
     });
 
-builder.Services.AddAuthorization();</b>
+builder.Services.AddAuthorization();
 
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -1136,13 +1691,11 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-<span class="hljs-comment" style="color:var(--muted);">// Exception middleware first — catches everything</span>
-<b>app.UseMiddleware&lt;ExceptionHandlingMiddleware&gt;();</b>
+app.UseMiddleware&lt;ExceptionHandlingMiddleware&gt;();
 
 app.UseHttpsRedirection();
 
-<span class="hljs-comment" style="color:var(--muted);">// Auth middleware — order matters!</span>
-<b>app.UseAuthentication();</b>
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
@@ -1150,28 +1703,34 @@ app.MapControllers();
 app.Run();</pre>
 
   <div class="callout">
-    <strong>Pipeline order (why it matters):</strong><br>
-    <code>ExceptionHandlingMiddleware</code> → wraps everything in try/catch.<br>
-    <code>HttpsRedirection</code> → redirects HTTP to HTTPS.<br>
-    <code>Authentication</code> → reads the JWT from the Authorization header, validates signature,
-    populates <code>HttpContext.User</code> with claims.<br>
-    <code>Authorization</code> → checks <code>[Authorize]</code> and <code>[AllowAnonymous]</code>
-    attributes on controllers/actions.<br>
-    <code>MapControllers</code> → routes the request to the matching controller action.<br><br>
-    If Authentication comes <em>after</em> Authorization, the <code>[Authorize]</code> attribute
-    will fail because no user is set yet.
+    <strong>Registration order (from top to bottom):</strong><br>
+    1. <code>AddHttpContextAccessor()</code> — enables <code>IHttpContextAccessor</code> for CurrentUserService.<br>
+    2. <code>AddApplication()</code> — MediatR + FluentValidation.<br>
+    3. <code>AddAuthentication().AddJwtBearer()</code> — JWT validation + <strong>cookie event</strong> (checks <code>access_token</code> cookie if no Bearer header).<br>
+    4. <code>AddAuthorization()</code> — enables <code>[Authorize]</code> / <code>[AllowAnonymous]</code>.<br>
+    5. <code>AddInfrastructure()</code> — DbContext + JwtService + CurrentUserService.<br><br>
+    <strong>Middleware order (runs top to bottom on every request):</strong><br>
+    <code>ExceptionHandlingMiddleware</code> → <code>HttpsRedirection</code> → <code>Authentication</code> → <code>Authorization</code> → <code>MapControllers</code>.<br>
+    If Authentication came <em>after</em> Authorization, <code>[Authorize]</code> would fail because no user is set yet.
   </div>
 
-  <div class="callout">
-    <strong>JWT configuration breakdown:</strong>
-    <code>ValidateIssuer = true</code> — check that the token's <code>iss</code> claim matches
-    <code>ValidIssuer</code>. Prevents tokens from other systems being used here.<br>
-    <code>ValidateAudience = true</code> — check that the token's <code>aud</code> claim matches
-    <code>ValidAudience</code>. Prevents tokens meant for a different frontend from working.<br>
-    <code>ValidateLifetime = true</code> — check that the token hasn't expired.<br>
-    <code>ValidateIssuerSigningKey = true</code> — verify the cryptographic signature.<br>
-    <code>IssuerSigningKey</code> — the same secret that <code>JwtService</code> used to sign the token.
-    Both must use the same key, or verification fails.
+  <div class="story">
+    <div class="story-title">How a complete authenticated request flows through the pipeline</div>
+    At app startup, <code>Program.cs</code> builds the service collection and middleware pipeline in a critical order.<br><br>
+    <strong>Service registration order:</strong><br>
+    1. <code>AddHttpContextAccessor()</code> — registers <code>IHttpContextAccessor</code> singleton so <code>CurrentUserService</code> can access <code>HttpContext</code> from outside controllers.<br>
+    2. <code>AddApplication()</code> — registers MediatR handlers + FluentValidation validators via assembly scanning.<br>
+    3. <code>AddAuthentication().AddJwtBearer()</code> — registers the JWT Bearer handler. The <code>TokenValidationParameters</code> configure what to validate (issuer, audience, lifetime, signing key) — all read from <code>appsettings.json</code> <code>Jwt</code> section. The <code>OnMessageReceived</code> event checks for a <code>access_token</code> cookie first; if present, it uses that as the token instead of the <code>Authorization</code> header. This handler inspects every incoming request for a JWT (from either source), validates it, and sets <code>HttpContext.User</code> with the decoded claims.<br>
+    4. <code>AddAuthorization()</code> — enables <code>[Authorize]</code> / <code>[AllowAnonymous]</code> infrastructure.<br>
+    5. <code>AddInfrastructure()</code> — registers DbContext, JwtService, CurrentUserService.<br><br>
+    <strong>Middleware execution order (runs top to bottom on every request):</strong><br>
+    1. <code>ExceptionHandlingMiddleware</code> — outermost catch-all.<br>
+    2. <code>UseHttpsRedirection</code> — HTTP → HTTPS.<br>
+    3. <code>UseAuthentication()</code> — JWT Bearer middleware reads the token, validates it, sets <code>HttpContext.User</code>.<br>
+    4. <code>UseAuthorization()</code> — checks <code>[Authorize]</code> / <code>[AllowAnonymous]</code>; returns 401/403 if unauthorized.<br>
+    5. <code>MapControllers()</code> — routes to the matching controller action.<br><br>
+    When <code>POST /auth/signup</code> arrives with no token: Auth middleware finds no token (no user set), but <code>[AllowAnonymous]</code> means Authorization lets it through → controller runs normally and sets the HttpOnly cookie on the response. When <code>GET /auth/me</code> arrives with a valid cookie or Bearer token: The <code>OnMessageReceived</code> event reads the token from the cookie (if no Bearer header is present), Auth middleware validates the JWT and sets <code>HttpContext.User</code> → Authorization sees <code>[Authorize]</code> and allows → controller reads the user identity from <code>ICurrentUserService</code>. The cookie is sent automatically by the browser — the frontend never needs to manage tokens in JavaScript.
+    <div class="story-seq">File chain: Program.cs → ExceptionHandlingMiddleware.cs → JWT Bearer Middleware → Authorization Middleware → AuthController.cs → respective handler</div>
   </div>
 
   <hr>
@@ -1184,7 +1743,7 @@ dotnet add src\OmniBlox.Application\OmniBlox.Application.csproj package Microsof
 dotnet add src\OmniBlox.Application\OmniBlox.Application.csproj package BCrypt.Net-Next
 dotnet add src\OmniBlox.Infrastructure\OmniBlox.Infrastructure.csproj package BCrypt.Net-Next
 
-<span class="hljs-comment" style="color:var(--muted);"># 2. Create exception classes</span>
+<span class="hljs-comment" style="color:var(--muted);"># 2. Create exception classes (Shared)</span>
 New-Item -Path src\OmniBlox.Shared\Exceptions\UnauthorizedException.cs -Force
 New-Item -Path src\OmniBlox.Shared\Exceptions\NotFoundException.cs -Force
 New-Item -Path src\OmniBlox.Shared\Exceptions\ConflictException.cs -Force
@@ -1202,7 +1761,10 @@ New-Item -Path src\OmniBlox.Application\Features\Auth\DTOs\SignupRequest.cs -For
 <span class="hljs-comment" style="color:var(--muted);"># 5. Create Commands, Handlers, Queries</span>
 New-Item -Path src\OmniBlox.Application\Features\Auth\Commands\LoginCommand.cs -Force
 New-Item -Path src\OmniBlox.Application\Features\Auth\Commands\SignupCommand.cs -Force
+New-Item -Path src\OmniBlox.Application\Features\Auth\Commands\UpdateProfileCommand.cs -Force
+New-Item -Path src\OmniBlox.Application\Features\Auth\Commands\ChangePasswordCommand.cs -Force
 New-Item -Path src\OmniBlox.Application\Features\Auth\Queries\GetCurrentUserQuery.cs -Force
+New-Item -Path src\OmniBlox.Application\Features\Auth\Queries\ValidateTokenQuery.cs -Force
 
 <span class="hljs-comment" style="color:var(--muted);"># 6. Create Infrastructure implementations</span>
 New-Item -Path src\OmniBlox.Infrastructure\Auth\JwtService.cs -Force
@@ -1232,29 +1794,45 @@ dotnet run --project src\OmniBlox.Api</pre>
 
   <p>The API starts on <code>https://localhost:5001</code> (or the port shown in the console).</p>
 
-  <p>Test the endpoints with curl or any HTTP client:</p>
+  <p>Test the endpoints with curl:</p>
 
   <pre>
 <span class="hljs-comment" style="color:var(--muted);"># 1. Signup (creates Company + Owner User)</span>
-curl -X POST https://localhost:5001/auth/signup ^
+curl -X POST http://localhost:5112/auth/signup ^
   -H "Content-Type: application/json" ^
-  -d "{\"email\":\"admin@omniblox.com\",\"password\":\"password123\",\"name\":\"Admin\",\"companyName\":\"OmniBlox\"}"
+  -d "{\"email\":\"admin@omniblox.com\",\"password\":\"password123\",\"name\":\"Admin\",\"companyName\":\"OmniBlox\",\"workspaceUrl\":\"omniblox\"}"
 
-<span class="hljs-comment" style="color:var(--muted);"># 2. Login (returns a JWT token)</span>
-curl -X POST https://localhost:5001/auth/login ^
+<span class="hljs-comment" style="color:var(--muted);"># 2. Login (returns a JWT token + sets HttpOnly cookie)</span>
+curl -X POST http://localhost:5112/auth/login ^
   -H "Content-Type: application/json" ^
   -d "{\"email\":\"admin@omniblox.com\",\"password\":\"password123\"}"
 
 <span class="hljs-comment" style="color:var(--muted);"># 3. Get current user (use the token from login)</span>
-curl -X GET https://localhost:5001/auth/me ^
+curl -X GET http://localhost:5112/auth/me ^
+  -H "Authorization: Bearer &lt;your-token-here&gt;"
+
+<span class="hljs-comment" style="color:var(--muted);"># 4. Validate token</span>
+curl -X GET http://localhost:5112/auth/validate ^
+  -H "Authorization: Bearer &lt;your-token-here&gt;"
+
+<span class="hljs-comment" style="color:var(--muted);"># 5. Change password</span>
+curl -X PUT http://localhost:5112/auth/change-password ^
+  -H "Content-Type: application/json" ^
+  -H "Authorization: Bearer &lt;your-token-here&gt;" ^
+  -d "{\"currentPassword\":\"password123\",\"newPassword\":\"newpass1234\"}"
+
+<span class="hljs-comment" style="color:var(--muted);"># 6. Logout (clears HttpOnly cookie)</span>
+curl -X POST http://localhost:5112/auth/logout ^
   -H "Authorization: Bearer &lt;your-token-here&gt;"</pre>
 
   <div class="callout success">
     <strong>Expected results:</strong><br>
-    Signup returns HTTP 201 with a JWT token + user data.<br>
-    Login returns HTTP 200 with a JWT token + user data.<br>
-    /auth/me returns HTTP 200 with user data (no token — already authenticated).<br>
-    Invalid credentials return HTTP 401 with <code>{"error": "Invalid email or password."}</code>.
+    Signup returns HTTP 200 with <code>{ token, user: { id, email, name, role, companyId, company: {...} }, company: {...} }</code>.<br>
+    Login returns HTTP 200 with the same shape.<br>
+    /auth/me returns HTTP 200 with <code>UserDto</code> — no token in response.<br>
+    /auth/validate returns HTTP 200 with <code>{ valid: true, user: {...} }</code>.<br>
+    Invalid credentials return HTTP 401 with <code>{"error": "Invalid email or password."}</code>.<br>
+    Cookie is set on login/signup — you can verify by adding <code>-v</code> to see <code>Set-Cookie</code> in response headers.
   </div>
 
   <hr>
@@ -1263,66 +1841,56 @@ curl -X GET https://localhost:5001/auth/me ^
 
   <table>
     <tr><th>NestJS / Prisma</th><th>ASP.NET Core</th></tr>
-    <tr><td>Better Auth (cookie sessions)</td><td>JWT Bearer (stateless tokens)</td></tr>
+    <tr><td>Better Auth (cookie sessions)</td><td>Hybrid JWT — Bearer header + HttpOnly cookie</td></tr>
     <tr><td><code>@UseGuards(AuthGuard)</code></td><td><code>[Authorize]</code></td></tr>
     <tr><td><code>@AllowAnonymous()</code></td><td><code>[AllowAnonymous]</code></td></tr>
     <tr><td><code>@CompanyId()</code> decorator</td><td><code>ICurrentUserService.CompanyId</code></td></tr>
-    <tr><td><code>bcrypt.hash(password, 10)</code></td><td><code>BCrypt.Net.BCrypt.HashPassword(password)</code></td></tr>
-    <tr><td><code>@Body() dto</code> + class-validator</td><td>FluentValidation + <code>[ApiController]</code></td></tr>
-    <tr><td>Exception filters</td><td><code>ExceptionHandlingMiddleware</code></td></tr>
-    <tr><td><code>@nestjs/jwt</code> + <code>@nestjs/passport</code></td><td><code>Microsoft.AspNetCore.Authentication.JwtBearer</code></td></tr>
+    <tr><td><code>bcrypt.hash(pw, 10)</code></td><td><code>BCrypt.Net.BCrypt.HashPassword(pw)</code></td></tr>
+    <tr><td><code>ExceptionFilter</code></td><td><code>ExceptionHandlingMiddleware</code></td></tr>
+    <tr><td><code>@nestjs/config</code></td><td><code>IOptions&lt;T&gt;</code> + <code>appsettings.json</code></td></tr>
+    <tr><td><code>@nestjs/jwt</code></td><td><code>System.IdentityModel.Tokens.Jwt</code></td></tr>
+    <tr><td>Session validation on app init</td><td><code>GET /auth/validate</code> + <code>ValidateTokenQuery</code></td></tr>
   </table>
 
   <hr>
 
-  <h2>Why This Architecture Works</h2>
-
-  <p>Let's trace what happens when a request hits <code>POST /auth/login</code>:</p>
-
-  <pre style="line-height:2;">
-1. HTTP request → Kestrel (ASP.NET Core web server)
-2. ExceptionHandlingMiddleware wraps in try/catch
-3. Authentication middleware reads Authorization header
-   (for login/signup: no token, so skips — [AllowAnonymous])
-4. Authorization middleware checks [AllowAnonymous] → allows
-5. Routing sends to AuthController.Login()
-6. Controller maps LoginRequest → LoginCommand
-7. Controller calls _mediator.Send(LoginCommand)
-8. MediatR pipeline:
-   a. ValidationBehavior runs LoginCommandValidator
-      — checks Email is not empty, valid format
-      — checks Password is not empty
-   b. LoginCommandHandler.Handle() executes:
-      — Queries DB for user by email
-      — Verifies password with BCrypt
-      — Checks account status
-      — Calls JwtService.GenerateToken(user, company)
-   c. Returns AuthResponse
-9. Controller wraps in Ok() → returns HTTP 200 + JSON</pre>
+  <h2>Watch &amp; Read</h2>
+  <ul>
+    <li>
+      <strong>Primary source:</strong>
+      <a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/jwt" target="_blank">
+        JWT Authentication in ASP.NET Core (Microsoft Docs)
+      </a>
+    </li>
+    <li>
+      <a href="https://jwt.io/introduction" target="_blank">
+        JWT.io Introduction
+      </a>
+      — What are JSON Web Tokens?
+    </li>
+  </ul>
 
   <hr>
 
   <h2>Check Your Understanding</h2>
-
   <ol>
-    <li>What happens if the JWT secret in <code>JwtService</code> doesn't match the secret in <code>Program.cs</code>?</li>
-    <li>Why does <code>GetCurrentUserQuery</code> have no properties? How does the handler know which user to look up?</li>
-    <li>What would you change to make <code>GET /auth/me</code> also return the user's company name?</li>
-    <li>Why is <code>app.UseAuthentication()</code> placed <em>before</em> <code>app.UseAuthorization()</code>?</li>
-    <li>What HTTP status code does the client get if they send an expired JWT?</li>
+    <li>Build and run the API — do the three curl commands work?</li>
+    <li>What happens if you call <code>/auth/me</code> without a token?</li>
+    <li>Why does the JWT Bearer config have <code>OnMessageReceived</code> event?</li>
+    <li>What's the difference between <code>AuthResponse</code> (login) and <code>UserDto</code> (/me)?</li>
+    <li>Trace the full flow: <code>PUT /auth/change-password</code> → which files does it touch?</li>
   </ol>
 
   <div class="callout">
-    <strong>Stuck on a question?</strong> Ask me — each answer reveals a deeper understanding
-    of how ASP.NET Core auth works.
+    <strong>Stuck?</strong> Build errors are expected on first run — check the error message
+    and ask me! Common issues: missing <code>using</code> directives, duplicate registrations,
+    or JWT secret too short.
   </div>
 
   <hr>
 
   <p style="font-size:0.85rem; color:var(--muted);">
-    Next lesson: Multi-Tenant Query Filters &amp; the Products Module (first real CRUD).
-    See also: <a href="../reference/aspnet-core-glossary.html">Glossary</a>,
-    <a href="../lessons/0002-domain-entities-and-ef-core.html">Lesson 2</a>.
+    Next up: Lesson 4 — Multi-tenant global query filters &amp; first CRUD feature.
   </p>
 </body>
 </html>

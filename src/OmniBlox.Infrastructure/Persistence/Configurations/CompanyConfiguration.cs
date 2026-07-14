@@ -27,6 +27,17 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
         builder.Property(c => c.Address)
             .HasMaxLength(500);
 
+        builder.Property(c => c.WorkspaceUrl)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        builder.Property(c => c.Industry)
+            .HasMaxLength(100);
+
+        builder.Property(c => c.Country)
+            .HasMaxLength(100);
+
         builder.HasIndex(c => c.Email).IsUnique();
+        builder.HasIndex(c => c.WorkspaceUrl).IsUnique();
     }
 }

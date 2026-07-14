@@ -9,6 +9,7 @@ public class User : BaseEntity
     public string Name { get; set; } = string.Empty;
     public UserRole Role { get; set; } = UserRole.OBSERVER;
     public UserStatus Status { get; set; } = UserStatus.INVITED;
+    public DateTime? LastLoginAt { get; set; }
 
     public Guid CompanyId { get; set; }
     public Company Company { get; set; } = null!;

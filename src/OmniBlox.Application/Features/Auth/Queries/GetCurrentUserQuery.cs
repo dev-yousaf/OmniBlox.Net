@@ -7,9 +7,9 @@ using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.Auth.Queries;
 
-public record GetCurrentUserQuery : IRequest<AuthResponse>;
+public record GetCurrentUserQuery : IRequest<UserDto>;
 
-public class GetCurrentUserQueryHandler : IRequestHandler<GetCurrentUserQuery, AuthResponse>
+public class GetCurrentUserQueryHandler : IRequestHandler<GetCurrentUserQuery, UserDto>
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
@@ -20,20 +20,30 @@ public class GetCurrentUserQueryHandler : IRequestHandler<GetCurrentUserQuery, A
         _currentUser = currentUser;
     }
 
-    public async Task<AuthResponse> Handle(GetCurrentUserQuery request, CancellationToken ct)
+    public async Task<UserDto> Handle(GetCurrentUserQuery request, CancellationToken ct)
     {
         var user = await _context.Users
+            .Include(u => u.Company)
             .FirstOrDefaultAsync(u => u.Id == _currentUser.UserId, ct);
 
         if (user is null)
             throw new NotFoundException(nameof(User), _currentUser.UserId);
 
-        return new AuthResponse
+        return new UserDto
         {
+            Id = user.Id,
             Email = user.Email,
             Name = user.Name,
             Role = user.Role.ToString(),
             CompanyId = user.CompanyId,
+            Company = new CompanyDto
+            {
+                Id = user.Company.Id,
+                Name = user.Company.Name,
+                WorkspaceUrl = user.Company.WorkspaceUrl,
+                Industry = user.Company.Industry,
+                Country = user.Company.Country,
+            },
         };
     }
 }
