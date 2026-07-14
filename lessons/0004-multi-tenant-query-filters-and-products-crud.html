@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 4: Multi-Tenant Query Filters &amp; Products CRUD</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+  <p class="lesson-meta">
+    <span class="lesson-number">Lesson 4</span> &middot;
+    Multi-Tenant Query Filters &amp; Products CRUD &middot;
+    ~45 minutes
+  </p>
+
+  <h1>Multi-Tenant Global Query Filters &amp; the Products CRUD</h1>
+
+  <p>
+    Every OmniBlox request belongs to a <strong>company</strong> (tenant). In this lesson we'll
+    build a global query filter that <em>automatically</em> scopes every database query to the
+    current company — no manual <code>.Where(p =&gt; p.CompanyId == ...)</code> required.
+    Then we'll prove it works by building a complete <strong>Products CRUD</strong> — the first
+    business feature in the app — with Create, Read (list + detail), Update, and Delete endpoints
+    all behind the multi-tenant filter.
+  </p>
+
+  <p>
+    The frontend (Next.js) already expects products at <code>/products</code> with fields like
+    <code>name</code>, <code>sku</code>, <code>salePrice</code>, <code>costPrice</code>,
+    <code>stock</code>, <code>category</code>, <code>unit</code>, and many more. We'll build the
+    API to match.
+  </p>
+
+  <div class="callout">
+    <strong>What changes:</strong> 1 new interface, 2 new enums, 1 new entity, 1 EF config, 5 new
+    files in Application (commands + queries + DTOs), 1 controller, 1 migration, and 3 existing
+    files modified. No new NuGet packages — MediatR auto-discovers our new handlers.
+  </div>
+
+  <h2>The Big Picture — Multi-Tenant Architecture</h2>
+
+  <div class="story">
+    <div class="story-title">How every request is automatically scoped to one company</div>
+    When a user authenticates, the JWT contains a <code>companyId</code> claim. The
+    <code>CurrentUserService</code> reads this claim and exposes it as <code>CompanyId</code>.
+    When <code>AppDbContext</code> builds its model, it inspects every entity type: if the entity
+    implements <code>ITenantEntity</code> (which has a <code>CompanyId</code> property), it
+    attaches a <strong>global query filter</strong>: <code>e =&gt; e.CompanyId == currentCompanyId</code>.
+    Every LINQ query — <code>ToListAsync</code>, <code>FirstOrDefaultAsync</code>,
+    <code>CountAsync</code> — automatically includes this WHERE clause. The developer never writes
+    <code>.Where(p =&gt; p.CompanyId == id)</code>. Even <code>.Include()</code> and navigation
+    properties get filtered.<br><br>
+    When a new entity is added, the overridden <code>SaveChangesAsync</code> checks if the entity's
+    <code>CompanyId</code> is still <code>Guid.Empty</code> (the default for new entities) and fills
+    it from the current user's company. The developer never sets <code>CompanyId</code> manually.
+    <div class="story-seq">File chain: ITenantEntity.cs → AppDbContext.cs → CurrentUserService.cs → (any handler that queries Products)</div>
+  </div>
+
+  <pre style="line-height:1.5; font-size:0.9rem;">
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ CLIENT sends authenticated request  —  cookie or Bearer token with companyId claim                               │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ JWT Bearer Middleware validates token, sets HttpContext.User with claims                                        │
+│  Claim: "companyId" = "a1b2c3d4-..."                                                                             │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ CurrentUserService.CompanyId  reads "companyId" claim from HttpContext.User                                     │
+│  Returns: Guid.Parse("a1b2c3d4-...")  —or—  Guid.Empty if not authenticated                                     │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ AppDbContext (scoped per request)                                                                                │
+│  Constructor receives ICurrentUserService                                                                        │
+│  OnModelCreating (runs once at startup):                                                                         │
+│    For each entity type implementing ITenantEntity:                                                              │
+│      HasQueryFilter(e => e.CompanyId == _currentUser.CompanyId)  ← stored as expression tree                    │
+│  SaveChangesAsync (runs on every save):                                                                          │
+│    For each new ITenantEntity with CompanyId == Guid.Empty:                                                      │
+│      entry.Entity.CompanyId = _currentUser.CompanyId                                                             │
+└─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Handler queries Products via IApplicationDbContext:                                                              │
+│  _context.Products.Where(p => p.Name.Contains("widget")).ToListAsync()                                           │
+│  → EF Core automatically appends: AND p.CompanyId = 'a1b2c3d4-...'                                              │
+│  → Product A from Company B is never returned — no manual filtering needed                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  </pre>
+
+  <hr>
+
+  <h2>Architecture — What We're Building</h2>
+
+  <table>
+    <tr><th>Layer</th><th>New Files</th><th>Modified Files</th></tr>
+    <tr><td>Domain</td><td><code>ITenantEntity</code>, <code>Product</code>, <code>ProductStatus</code>, <code>ProductType</code></td><td>—</td></tr>
+    <tr><td>Application</td><td><code>ProductDto</code>, <code>CreateProductCommand</code>, <code>UpdateProductCommand</code>, <code>DeleteProductCommand</code>, <code>GetProductQuery</code>, <code>GetProductsQuery</code></td><td><code>IApplicationDbContext</code></td></tr>
+    <tr><td>Infrastructure</td><td><code>ProductConfiguration</code>, migration</td><td><code>AppDbContext</code>, <code>CurrentUserService</code></td></tr>
+    <tr><td>Api</td><td><code>ProductsController</code></td><td>—</td></tr>
+  </table>
+
+  <hr>
+
+  <!-- ============================================================
+       PART 1: Multi-Tenant Foundation
+       ============================================================ -->
+  <h2>Part 1 — Multi-Tenant Foundation</h2>
+
+  <!-- 1. ITenantEntity -->
+  <h3>1. ITenantEntity — the contract</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Domain/Interfaces/ITenantEntity.cs</div>
+    <pre>
+namespace OmniBlox.Domain.Interfaces;
+
+public interface ITenantEntity
+{
+    Guid CompanyId { get; set; }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Minimal interface:</strong> One property. Any entity that belongs to a company (Products,
+    Customers, Invoices, Warehouses, etc.) implements this. The <code>CompanyId</code> is both the
+    FK to the Companies table <em>and</em> the discriminator for the query filter.
+  </div>
+
+  <div class="story">
+    <div class="story-title">Why an interface instead of a base class?</div>
+    <code>ITenantEntity</code> is an interface because entities already inherit from
+    <code>BaseEntity</code>. C# doesn't allow multiple inheritance, so an interface is the only way
+    to add tenant behavior across the hierarchy. The <code>AppDbContext</code> uses
+    <code>typeof(ITenantEntity).IsAssignableFrom(entityType.ClrType)</code> to detect which entities
+    need the query filter — it works with any class that implements the interface, regardless of
+    its place in the inheritance tree.
+    <div class="story-seq">File chain: ITenantEntity.cs → AppDbContext.cs → Product.cs</div>
+  </div>
+
+  <!-- 2. CurrentUserService change -->
+  <h3>2. CurrentUserService — no more throwing on anonymous requests</h3>
+
+  <p>
+    Previously, <code>CompanyId</code> threw <code>UnauthorizedAccessException</code> when the
+    JWT was missing. But <code>AppDbContext</code> is created for <em>every</em> request (including
+    anonymous signup/login), so the query filter would crash. Now it returns <code>Guid.Empty</code>
+    instead — handlers that require auth already have <code>[Authorize]</code> protection.
+  </p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Infrastructure/Auth/CurrentUserService.cs (changed lines)</div>
+    <pre>
+    public Guid CompanyId
+    {
+        get
+        {
+            var value = _httpContextAccessor.HttpContext?.User
+                .FindFirstValue("companyId");
+
+            return value is not null ? Guid.Parse(value) : Guid.Empty;
+        }
+    }</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Why this is safe:</strong> <code>Guid.Empty</code> means "no company". If an anonymous
+    request somehow queries a tenant-scoped entity, the filter becomes
+    <code>e =&gt; e.CompanyId == Guid.Empty</code>, which returns zero rows — no data leaked.
+    Authenticated endpoints get the real <code>CompanyId</code> from the JWT because the token was
+    validated before the handler runs.
+  </div>
+
+  <!-- 3. AppDbContext -->
+  <h3>3. AppDbContext — query filters + auto-set CompanyId</h3>
+
+  <p>Three changes in one file:</p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Infrastructure/Persistence/AppDbContext.cs (full file)</div>
+    <pre>
+using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Interfaces;
+
+namespace OmniBlox.Infrastructure.Persistence;
+
+public class AppDbContext : DbContext, IApplicationDbContext
+{
+    private readonly ICurrentUserService _currentUser;
+
+    public AppDbContext(
+        DbContextOptions&lt;AppDbContext&gt; options,
+        ICurrentUserService currentUser)
+        : base(options)
+    {
+        _currentUser = currentUser;
+    }
+
+    public DbSet&lt;Company&gt; Companies =&gt; Set&lt;Company&gt;();
+    public DbSet&lt;User&gt; Users =&gt; Set&lt;User&gt;();
+    public DbSet&lt;Product&gt; Products =&gt; Set&lt;Product&gt;();
+
+    protected override void OnModelCreating(ModelBuilder builder)
+    {
+        base.OnModelCreating(builder);
+        builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        foreach (var entityType in builder.Model.GetEntityTypes())
+        {
+            if (typeof(ITenantEntity).IsAssignableFrom(entityType.ClrType))
+            {
+                var parameter = Expression.Parameter(entityType.ClrType, "e");
+                var property = Expression.Property(parameter, nameof(ITenantEntity.CompanyId));
+                var companyId = Expression.Constant(_currentUser.CompanyId);
+                var body = Expression.Equal(property, companyId);
+                var lambda = Expression.Lambda(body, parameter);
+
+                entityType.SetQueryFilter(lambda);
+            }
+        }
+    }
+
+    public override async Task&lt;int&gt; SaveChangesAsync(CancellationToken ct = default)
+    {
+        foreach (var entry in ChangeTracker.Entries&lt;ITenantEntity&gt;())
+        {
+            if (entry.State == EntityState.Added && entry.Entity.CompanyId == Guid.Empty)
+            {
+                entry.Entity.CompanyId = _currentUser.CompanyId;
+            }
+        }
+
+        return await base.SaveChangesAsync(ct);
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Syntax breakdown — Expression Trees:</strong><br>
+    The <code>HasQueryFilter</code> method accepts a Lambda expression. Instead of writing
+    <code>e =&gt; e.CompanyId == someValue</code> at compile time (we don't know which entity types
+    exist), we build the expression at runtime:<br>
+    <code>Expression.Parameter(entityType.ClrType, "e")</code> — creates the <code>e</code> parameter<br>
+    <code>Expression.Property(parameter, "CompanyId")</code> — creates <code>e.CompanyId</code><br>
+    <code>Expression.Constant(_currentUser.CompanyId)</code> — the current value from DI<br>
+    <code>Expression.Equal(property, companyId)</code> — creates <code>e.CompanyId == value</code><br>
+    <code>Expression.Lambda(body, parameter)</code> — wraps it in <code>e =&gt; ...</code><br>
+    <code>entityType.SetQueryFilter(lambda)</code> — attaches it as the global filter.
+  </div>
+
+  <div class="callout warning">
+    <strong>Important — User does NOT implement ITenantEntity:</strong> Login needs to look up users
+    by email <em>across all companies</em>. If we filtered Users, login would only find users in the
+    <code>Guid.Empty</code> company (i.e., none). User access is controlled manually via JWT claims
+    (<code>_currentUser.UserId</code>) rather than a global filter.
+  </div>
+
+  <div class="story">
+    <div class="story-title">How the query filter is evaluated at runtime</div>
+    <code>OnModelCreating</code> runs <strong>once per application lifetime</strong> (the model is
+    cached). But the expression tree it creates captures a <strong>reference</strong> to the
+    <code>_currentUser</code> field of the <code>AppDbContext</code> <em>instance</em>. Since each
+    HTTP request gets its own scoped <code>AppDbContext</code> (and therefore its own
+    <code>ICurrentUserService</code>), the <code>_currentUser.CompanyId</code> is evaluated
+    <strong>per query</strong>, not once at startup. When User A from Company X queries products,
+    EF Core translates the filter to <code>WHERE "p"."CompanyId" = 'company-x-guid'</code>. User B
+    from Company Y gets <code>WHERE "p"."CompanyId" = 'company-y-guid'</code> — automatically,
+    from the same compiled model.
+    <div class="story-seq">File chain: AppDbContext.cs → (model cache) → query pipeline</div>
+  </div>
+
+  <div class="story">
+    <div class="story-title">How SaveChangesAsync auto-sets CompanyId</div>
+    When a handler creates a new Product with <code>new Product { Name = "Widget", ... }</code>, it
+    doesn't set <code>CompanyId</code> — it stays <code>Guid.Empty</code>. Before the INSERT reaches
+    PostgreSQL, the overridden <code>SaveChangesAsync</code> iterates all tracked entities
+    implementing <code>ITenantEntity</code>, checks if they're in <code>EntityState.Added</code>
+    with <code>CompanyId == Guid.Empty</code>, and fills in the current user's <code>CompanyId</code>.
+    The developer never writes <code>product.CompanyId = _currentUser.CompanyId</code> in any handler.
+    The handler stays clean: just set business fields, save, and the infrastructure handles tenancy.
+    <div class="story-seq">File chain: AppDbContext.SaveChangesAsync() → Product entity → database</div>
+  </div>
+
+  <hr>
+
+  <!-- ============================================================
+       PART 2: Product Entity
+       ============================================================ -->
+  <h2>Part 2 — Product Entity &amp; Configuration</h2>
+
+  <h3>4. ProductStatus &amp; ProductType enums</h3>
+
+  <div class="file-group">
+    <p class="file-group-title">Enum files in Domain/Enums</p>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Domain/Enums/ProductStatus.cs</div>
+      <pre>
+namespace OmniBlox.Domain.Enums;
+
+public enum ProductStatus
+{
+    ACTIVE = 0,
+    INACTIVE = 1,
+    DISCONTINUED = 2,
+}</pre>
+    </div>
+    <div class="file-panel">
+      <div class="file-panel-header">src/OmniBlox.Domain/Enums/ProductType.cs</div>
+      <pre>
+namespace OmniBlox.Domain.Enums;
+
+public enum ProductType
+{
+    STANDARD = 0,
+    DIGITAL = 1,
+    SERVICE = 2,
+    COMBO = 3,
+}</pre>
+    </div>
+    <div class="file-group-connector">
+      Both stored as <code>int</code> in PostgreSQL via <code>HasConversion&lt;int&gt;()</code>.
+      The client sends/expects the string name (<code>"ACTIVE"</code>, <code>"STANDARD"</code>)
+      and the handler parses it with <code>Enum.TryParse</code>.
+    </div>
+  </div>
+
+  <h3>5. Product entity</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Domain/Entities/Product.cs</div>
+    <pre>
+using OmniBlox.Domain.Enums;
+using OmniBlox.Domain.Interfaces;
+
+namespace OmniBlox.Domain.Entities;
+
+public class Product : BaseEntity, ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string SKU { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public ProductType Type { get; set; } = ProductType.STANDARD;
+    public string Category { get; set; } = string.Empty;
+    public string? Brand { get; set; }
+    public string Unit { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
+
+    public decimal SalePrice { get; set; }
+    public decimal CostPrice { get; set; }
+    public int StockQuantity { get; set; }
+    public int ReorderLevel { get; set; }
+
+    public ProductStatus Status { get; set; } = ProductStatus.ACTIVE;
+
+    public string? BarcodeSymbology { get; set; }
+    public decimal? TaxRate { get; set; }
+    public int? AlertQuantity { get; set; }
+    public string? ItemCode { get; set; }
+    public string? Manufacturer { get; set; }
+    public string? Warranty { get; set; }
+    public DateTime? ManufacturedDate { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>22 fields:</strong> 2 from <code>BaseEntity</code> (Id, CreatedAt, UpdatedAt),
+    2 from <code>ITenantEntity</code> (CompanyId) + Company nav, 18 business fields.
+    The full list matches what the Next.js frontend expects in <code>ProductFormData</code>.
+    <code>HasVariants</code>, <code>ParentId</code>, <code>Attributes</code>, and
+    <code>ComboItems</code> are omitted for now — they'll come in a future variants lesson.
+  </div>
+
+  <h3>6. ProductConfiguration</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Infrastructure/Persistence/Configurations/ProductConfiguration.cs</div>
+    <pre>
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence.Configurations;
+
+public class ProductConfiguration : IEntityTypeConfiguration&lt;Product&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;Product&gt; builder)
+    {
+        builder.ToTable("Products");
+
+        builder.HasKey(p =&gt; p.Id);
+
+        builder.Property(p =&gt; p.Name)
+            .HasMaxLength(200).IsRequired();
+
+        builder.Property(p =&gt; p.SKU)
+            .HasMaxLength(100).IsRequired();
+
+        builder.Property(p =&gt; p.Description)
+            .HasMaxLength(2000);
+
+        builder.Property(p =&gt; p.Type)
+            .HasConversion&lt;int&gt;().IsRequired();
+
+        builder.Property(p =&gt; p.Category)
+            .HasMaxLength(100).IsRequired();
+
+        builder.Property(p =&gt; p.Brand)
+            .HasMaxLength(100);
+
+        builder.Property(p =&gt; p.Unit)
+            .HasMaxLength(50).IsRequired();
+
+        builder.Property(p =&gt; p.ImageUrl)
+            .HasMaxLength(500);
+
+        builder.Property(p =&gt; p.SalePrice)
+            .HasColumnType("decimal(18,2)").IsRequired();
+
+        builder.Property(p =&gt; p.CostPrice)
+            .HasColumnType("decimal(18,2)").IsRequired();
+
+        builder.Property(p =&gt; p.Status)
+            .HasConversion&lt;int&gt;().IsRequired();
+
+        builder.Property(p =&gt; p.BarcodeSymbology)
+            .HasMaxLength(50);
+
+        builder.Property(p =&gt; p.TaxRate)
+            .HasColumnType("decimal(5,2)");
+
+        builder.Property(p =&gt; p.ItemCode)
+            .HasMaxLength(100);
+
+        builder.Property(p =&gt; p.Manufacturer)
+            .HasMaxLength(200);
+
+        builder.Property(p =&gt; p.Warranty)
+            .HasMaxLength(200);
+
+        builder.HasIndex(p =&gt; new { p.CompanyId, p.SKU }).IsUnique();
+
+        builder.HasOne(p =&gt; p.Company)
+            .WithMany()
+            .HasForeignKey(p =&gt; p.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Composite unique index:</strong> <code>HasIndex(p =&gt; new { p.CompanyId, p.SKU }).IsUnique()</code>
+    means SKUs must be unique <em>within a company</em>. Two companies can both have SKU
+    <code>"WIDGET-001"</code> — they're different products in different tenants. Without this
+    index, the multi-tenant filter would still separate them visually, but a bug could create
+    duplicate SKUs silently.
+  </div>
+
+  <hr>
+
+  <!-- ============================================================
+       PART 3: Application Layer
+       ============================================================ -->
+  <h2>Part 3 — Application Layer: DTOs + Commands + Queries</h2>
+
+  <h3>7. Product DTOs</h3>
+
+  <p>
+    Four records in one file. <code>ProductDto.FromEntity()</code> is a static factory that maps
+    the <code>Product</code> domain entity to the response DTO — no AutoMapper/Mapster needed
+    for now.
+  </p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Application/Features/Products/DTOs/ProductDto.cs</div>
+    <pre>
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.Products.DTOs;
+
+public record ProductDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string SKU { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string Type { get; init; } = string.Empty;       // string, not enum
+    public string Category { get; init; } = string.Empty;
+    public string? Brand { get; init; }
+    public string Unit { get; init; } = string.Empty;
+    public string? ImageUrl { get; init; }
+    public decimal SalePrice { get; init; }
+    public decimal CostPrice { get; init; }
+    public int StockQuantity { get; init; }
+    public int ReorderLevel { get; init; }
+    public string Status { get; init; } = string.Empty;     // string, not enum
+    public string? BarcodeSymbology { get; init; }
+    public decimal? TaxRate { get; init; }
+    public int? AlertQuantity { get; init; }
+    public string? ItemCode { get; init; }
+    public string? Manufacturer { get; init; }
+    public string? Warranty { get; init; }
+    public DateTime? ManufacturedDate { get; init; }
+    public DateTime? ExpiryDate { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+
+    public static ProductDto FromEntity(Product product) =&gt; new()
+    {
+        Id = product.Id,
+        Name = product.Name,
+        SKU = product.SKU,
+        Description = product.Description,
+        Type = product.Type.ToString(),         // enum → string
+        Category = product.Category,
+        Brand = product.Brand,
+        Unit = product.Unit,
+        ImageUrl = product.ImageUrl,
+        SalePrice = product.SalePrice,
+        CostPrice = product.CostPrice,
+        StockQuantity = product.StockQuantity,
+        ReorderLevel = product.ReorderLevel,
+        Status = product.Status.ToString(),     // enum → string
+        BarcodeSymbology = product.BarcodeSymbology,
+        TaxRate = product.TaxRate,
+        AlertQuantity = product.AlertQuantity,
+        ItemCode = product.ItemCode,
+        Manufacturer = product.Manufacturer,
+        Warranty = product.Warranty,
+        ManufacturedDate = product.ManufacturedDate,
+        ExpiryDate = product.ExpiryDate,
+        CreatedAt = product.CreatedAt,
+        UpdatedAt = product.UpdatedAt,
+    };
+}
+
+public record ProductListResponse
+{
+    public List&lt;ProductDto&gt; Items { get; init; } = [];
+    public int Total { get; init; }
+    public int Page { get; init; }
+    public int Limit { get; init; }
+}
+
+public record CreateProductRequest { /* 21 fields matching CreateProductCommand */ }
+public record UpdateProductRequest { /* 21 nullable fields matching UpdateProductCommand */ }</pre>
+  </div>
+
+  <div class="callout">
+    <strong>DTO vs Entity:</strong> <code>ProductDto</code> uses <code>string</code> for
+    <code>Type</code> and <code>Status</code> rather than the enum. JSON serialization produces
+    <code>"ACTIVE"</code> instead of <code>0</code>. The <code>CompanyId</code> is intentionally
+    omitted — the client already knows which company it belongs to (it's in the JWT). The frontend
+    should never need to see or send <code>CompanyId</code>.
+  </div>
+
+  <h3>8. CreateProductCommand — command + handler + validator</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Application/Features/Products/Commands/CreateProductCommand.cs</div>
+    <pre>
+using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Products.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Products.Commands;
+
+public record CreateProductCommand : IRequest&lt;ProductDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public string SKU { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string Type { get; init; } = "STANDARD";
+    // ... 17 more fields matching the DTO
+    public DateTime? ExpiryDate { get; init; }
+}
+
+public class CreateProductCommandHandler
+    : IRequestHandler&lt;CreateProductCommand, ProductDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+
+    public CreateProductCommandHandler(IApplicationDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task&lt;ProductDto&gt; Handle(
+        CreateProductCommand request, CancellationToken ct)
+    {
+        var skuExists = await _context.Products
+            .AnyAsync(p =&gt; p.SKU == request.SKU, ct);
+
+        if (skuExists)
+            throw new ConflictException(
+                $"Product with SKU '{request.SKU}' already exists.");
+
+        var product = new Product
+        {
+            Name = request.Name,
+            SKU = request.SKU,
+            Description = request.Description,
+            Type = Enum.TryParse&lt;ProductType&gt;(request.Type, true,
+                out var type) ? type : ProductType.STANDARD,
+            // ... map remaining fields
+            ExpiryDate = request.ExpiryDate,
+        };
+
+        _context.Products.Add(product);
+        await _context.SaveChangesAsync(ct);
+
+        return ProductDto.FromEntity(product);
+    }
+}
+
+public class CreateProductCommandValidator
+    : AbstractValidator&lt;CreateProductCommand&gt;
+{
+    public CreateProductCommandValidator()
+    {
+        RuleFor(v =&gt; v.Name)
+            .NotEmpty().MaximumLength(200);
+        RuleFor(v =&gt; v.SKU)
+            .NotEmpty().MaximumLength(100);
+        RuleFor(v =&gt; v.SalePrice)
+            .GreaterThanOrEqualTo(0);
+        RuleFor(v =&gt; v.TaxRate)
+            .InclusiveBetween(0, 100).When(v =&gt; v.TaxRate.HasValue);
+        // ... more validation rules
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>No CompanyId in the handler:</strong> The handler creates <code>new Product { Name,
+    SKU, ... }</code> — it never touches <code>CompanyId</code>. The <code>SaveChangesAsync</code>
+    override in <code>AppDbContext</code> fills it automatically. If the SKU already exists
+    in <em>any</em> company (but the composite index is per-company), the
+    <code>AnyAsync</code> check is also scoped by the query filter — so it only checks within
+    the current company.
+  </div>
+
+  <h3>9. GetProductsQuery — paginated list with search/filter</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Application/Features/Products/Queries/GetProductsQuery.cs</div>
+    <pre>
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Products.DTOs;
+
+namespace OmniBlox.Application.Features.Products.Queries;
+
+public record GetProductsQuery : IRequest&lt;ProductListResponse&gt;
+{
+    public int Page { get; init; } = 1;
+    public int Limit { get; init; } = 20;
+    public string? Search { get; init; }
+    public string? Category { get; init; }
+    public string? Status { get; init; }
+}
+
+public class GetProductsQueryHandler
+    : IRequestHandler&lt;GetProductsQuery, ProductListResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+
+    public GetProductsQueryHandler(IApplicationDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task&lt;ProductListResponse&gt; Handle(
+        GetProductsQuery request, CancellationToken ct)
+    {
+        var query = _context.Products.AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            var search = request.Search.ToLower();
+            query = query.Where(p =&gt;
+                p.Name.ToLower().Contains(search) ||
+                p.SKU.ToLower().Contains(search));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Category))
+            query = query.Where(p =&gt; p.Category == request.Category);
+
+        if (!string.IsNullOrWhiteSpace(request.Status)
+            && Enum.TryParse&lt;Domain.Enums.ProductStatus&gt;(
+                request.Status, true, out var status))
+            query = query.Where(p =&gt; p.Status == status);
+
+        var total = await query.CountAsync(ct);
+
+        var items = await query
+            .OrderByDescending(p =&gt; p.CreatedAt)
+            .Skip((request.Page - 1) * request.Limit)
+            .Take(request.Limit)
+            .ToListAsync(ct);
+
+        return new ProductListResponse
+        {
+            Items = items.Select(ProductDto.FromEntity).ToList(),
+            Total = total,
+            Page = request.Page,
+            Limit = request.Limit,
+        };
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Multi-tenant filter is invisible:</strong> The handler calls
+    <code>_context.Products.Where(p =&gt; p.Name.Contains(search))</code> — it doesn't add
+    <code>.Where(p =&gt; p.CompanyId == _currentUser.CompanyId)</code>. The global query filter
+    adds it automatically. <code>CountAsync</code> and the paginated <code>ToListAsync</code>
+    both include the filter. If User A has 100 products and User B has 5, each sees their own
+    count.
+  </div>
+
+  <h3>10. GetProductQuery, UpdateProductCommand, DeleteProductCommand</h3>
+
+  <p>
+    Three more files following the same pattern. <code>GetProductQuery</code> returns a single
+    product by <code>Id</code> (scoped to company). <code>UpdateProductCommand</code> does a
+    partial update — nullable fields, only non-null values are applied.
+    <code>DeleteProductCommand</code> removes the product. All three query through
+    <code>_context.Products</code> with the global filter active.
+  </p>
+
+  <div class="callout">
+    <strong>UpdateProductCommand — partial update pattern:</strong> Same as
+    <code>UpdateProfileCommand</code> from Lesson 3. Every field is <code>string?</code> /
+    <code>decimal?</code> / <code>int?</code>. Only non-null values are applied:
+    <code>if (request.Name is not null) product.Name = request.Name;</code>.
+    If the request changes the SKU, it checks for duplicates (excluding the product being updated).
+  </div>
+
+  <hr>
+
+  <!-- ============================================================
+       PART 4: Api Layer
+       ============================================================ -->
+  <h2>Part 4 — ProductsController</h2>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Api/Controllers/ProductsController.cs</div>
+    <pre>
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.Products.Commands;
+using OmniBlox.Application.Features.Products.DTOs;
+using OmniBlox.Application.Features.Products.Queries;
+
+namespace OmniBlox.Api.Controllers;
+
+[Route("products")]
+[Authorize]                     // ← every endpoint requires auth
+[ApiController]
+public class ProductsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    public ProductsController(IMediator mediator)
+    {
+        _mediator = mediator;
+    }
+
+    [HttpPost]
+    public async Task&lt;ActionResult&lt;ProductDto&gt;&gt; Create(
+        CreateProductRequest request, CancellationToken ct)
+    {
+        var command = new CreateProductCommand
+        {
+            Name = request.Name,
+            // ... map all 21 fields from request to command
+        };
+        var result = await _mediator.Send(command, ct);
+        return CreatedAtAction(nameof(GetById),
+            new { id = result.Id }, result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;ActionResult&lt;ProductDto&gt;&gt; GetById(
+        Guid id, CancellationToken ct)
+    {
+        var result = await _mediator.Send(
+            new GetProductQuery { Id = id }, ct);
+        return Ok(result);
+    }
+
+    [HttpGet]
+    public async Task&lt;ActionResult&lt;ProductListResponse&gt;&gt; GetAll(
+        CancellationToken ct,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        [FromQuery] string? search = null,
+        [FromQuery] string? category = null,
+        [FromQuery] string? status = null)
+    {
+        var result = await _mediator.Send(new GetProductsQuery
+        {
+            Page = page, Limit = limit,
+            Search = search, Category = category, Status = status,
+        }, ct);
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;ActionResult&lt;ProductDto&gt;&gt; Update(
+        Guid id, UpdateProductRequest request, CancellationToken ct)
+    {
+        var command = new UpdateProductCommand
+        {
+            Id = id,
+            // ... map all nullable fields from request to command
+        };
+        var result = await _mediator.Send(command, ct);
+        return Ok(result);
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;ActionResult&gt; Delete(
+        Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(
+            new DeleteProductCommand { Id = id }, ct);
+        return NoContent();
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>5 endpoints:</strong> <code>POST /products</code> (201 Created),
+    <code>GET /products</code> (paginated list), <code>GET /products/{id}</code> (detail),
+    <code>PUT /products/{id}</code> (partial update), <code>DELETE /products/{id}</code> (204 No Content).
+    All behind <code>[Authorize]</code> — unauthenticated requests get 401 before the controller runs.
+  </div>
+
+  <div class="story">
+    <div class="story-title">What happens when a user creates a product</div>
+    User A (from Company X) sends <code>POST /products</code> with a JWT containing
+    <code>companyId: "company-x"</code>. The controller maps the request body to a
+    <code>CreateProductCommand</code> and calls <code>_mediator.Send()</code>. The handler checks
+    that no other product in Company X has the same SKU (the <code>AnyAsync</code> is filtered by
+    the global query filter). It creates <code>new Product { Name = "Widget", SKU = "WGT-001",
+    ... }</code> — no <code>CompanyId</code>. <code>SaveChangesAsync</code> intercepts the new
+    entity, sees <code>CompanyId == Guid.Empty</code>, sets it to <code>_currentUser.CompanyId</code>
+    (= "company-x"), and inserts the row. The response returns a <code>ProductDto</code> with the
+    generated <code>Id</code>. User B from Company Y can also create a product with SKU "WGT-001"
+    — the composite unique index <code>(CompanyId, SKU)</code> allows it. User B will never see
+    User A's products, and vice versa.
+    <div class="story-seq">File chain: ProductsController.cs → CreateProductCommand.cs → CreateProductCommandHandler.cs → IApplicationDbContext.cs → AppDbContext.cs (query filter + auto-CompanyId) → PostgreSQL</div>
+  </div>
+
+  <hr>
+
+  <!-- ============================================================
+       PART 5: Migration
+       ============================================================ -->
+  <h2>Part 5 — EF Migration</h2>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">Generated migration: Products_AddProductEntity</div>
+    <pre>
+migrationBuilder.CreateTable(
+    name: "Products",
+    columns: table =&gt; new
+    {
+        Id = table.Column&lt;Guid&gt;(type: "uuid", nullable: false),
+        Name = table.Column&lt;string&gt;(maxLength: 200, nullable: false),
+        SKU = table.Column&lt;string&gt;(maxLength: 100, nullable: false),
+        Description = table.Column&lt;string&gt;(maxLength: 2000, nullable: true),
+        Type = table.Column&lt;int&gt;(nullable: false),
+        Category = table.Column&lt;string&gt;(maxLength: 100, nullable: false),
+        Brand = table.Column&lt;string&gt;(maxLength: 100, nullable: true),
+        Unit = table.Column&lt;string&gt;(maxLength: 50, nullable: false),
+        ImageUrl = table.Column&lt;string&gt;(maxLength: 500, nullable: true),
+        SalePrice = table.Column&lt;decimal&gt;(type: "numeric(18,2)", nullable: false),
+        CostPrice = table.Column&lt;decimal&gt;(type: "numeric(18,2)", nullable: false),
+        StockQuantity = table.Column&lt;int&gt;(nullable: false),
+        ReorderLevel = table.Column&lt;int&gt;(nullable: false),
+        Status = table.Column&lt;int&gt;(nullable: false),
+        BarcodeSymbology = table.Column&lt;string&gt;(maxLength: 50, nullable: true),
+        TaxRate = table.Column&lt;decimal&gt;(type: "numeric(5,2)", nullable: true),
+        AlertQuantity = table.Column&lt;int&gt;(nullable: true),
+        ItemCode = table.Column&lt;string&gt;(maxLength: 100, nullable: true),
+        Manufacturer = table.Column&lt;string&gt;(maxLength: 200, nullable: true),
+        Warranty = table.Column&lt;string&gt;(maxLength: 200, nullable: true),
+        ManufacturedDate = table.Column&lt;DateTime&gt;(nullable: true),
+        ExpiryDate = table.Column&lt;DateTime&gt;(nullable: true),
+        CompanyId = table.Column&lt;Guid&gt;(nullable: false),
+        CreatedAt = table.Column&lt;DateTime&gt;(nullable: false),
+        UpdatedAt = table.Column&lt;DateTime&gt;(nullable: true),
+    },
+    constraints: table =&gt;
+    {
+        table.PrimaryKey("PK_Products", x =&gt; x.Id);
+        table.ForeignKey(
+            name: "FK_Products_Companies_CompanyId",
+            column: x =&gt; x.CompanyId,
+            principalTable: "Companies",
+            principalColumn: "Id",
+            onDelete: ReferentialAction.Restrict);
+    });
+
+migrationBuilder.CreateIndex(
+    name: "IX_Products_CompanyId_SKU",
+    table: "Products",
+    columns: new[] { "CompanyId", "SKU" },
+    unique: true);</pre>
+  </div>
+
+  <div class="callout success">
+    <strong>No changes needed to DI registrations:</strong> MediatR auto-discovers the new handlers
+    (<code>CreateProductCommandHandler</code>, <code>GetProductsQueryHandler</code>, etc.) via
+    <code>RegisterServicesFromAssembly</code>. FluentValidation auto-discovers the new validators
+    via <code>AddValidatorsFromAssembly</code>. The <code>IApplicationDbContext</code> interface
+    already has the <code>Products</code> DbSet. No DI file changes needed.
+  </div>
+
+  <hr>
+
+  <h2>Full Command Sequence</h2>
+
+  <pre>
+<span class="hljs-comment" style="color:var(--muted);"># 1. Create ITenantEntity interface</span>
+New-Item -Path src\OmniBlox.Domain\Interfaces\ITenantEntity.cs -Force
+
+<span class="hljs-comment" style="color:var(--muted);"># 2. Create Product enums</span>
+New-Item -Path src\OmniBlox.Domain\Enums\ProductStatus.cs -Force
+New-Item -Path src\OmniBlox.Domain\Enums\ProductType.cs -Force
+
+<span class="hljs-comment" style="color:var(--muted);"># 3. Create Product entity</span>
+New-Item -Path src\OmniBlox.Domain\Entities\Product.cs -Force
+
+<span class="hljs-comment" style="color:var(--muted);"># 4. Create EF configuration</span>
+New-Item -Path src\OmniBlox.Infrastructure\Persistence\Configurations\ProductConfiguration.cs -Force
+
+<span class="hljs-comment" style="color:var(--muted);"># 5. Create DTOs + Commands + Queries</span>
+New-Item -Path src\OmniBlox.Application\Features\Products\DTOs\ProductDto.cs -Force
+New-Item -Path src\OmniBlox.Application\Features\Products\Commands\CreateProductCommand.cs -Force
+New-Item -Path src\OmniBlox.Application\Features\Products\Commands\UpdateProductCommand.cs -Force
+New-Item -Path src\OmniBlox.Application\Features\Products\Commands\DeleteProductCommand.cs -Force
+New-Item -Path src\OmniBlox.Application\Features\Products\Queries\GetProductQuery.cs -Force
+New-Item -Path src\OmniBlox.Application\Features\Products\Queries\GetProductsQuery.cs -Force
+
+<span class="hljs-comment" style="color:var(--muted);"># 6. Create Controller</span>
+New-Item -Path src\OmniBlox.Api\Controllers\ProductsController.cs -Force
+
+<span class="hljs-comment" style="color:var(--muted);"># 7. Modify 3 existing files:</span>
+<span class="hljs-comment" style="color:var(--muted);">#   IApplicationDbContext.cs — add DbSet&lt;Product&gt; Products</span>
+<span class="hljs-comment" style="color:var(--muted);">#   AppDbContext.cs — inject ICurrentUserService, HasQueryFilter, SaveChangesAsync</span>
+<span class="hljs-comment" style="color:var(--muted);">#   CurrentUserService.cs — return Guid.Empty instead of throwing</span>
+
+<span class="hljs-comment" style="color:var(--muted);"># 8. Build + Migration + Update</span>
+dotnet build
+dotnet ef migrations add Products_AddProductEntity --project src\OmniBlox.Infrastructure --startup-project src\OmniBlox.Api
+dotnet ef database update --project src\OmniBlox.Infrastructure --startup-project src\OmniBlox.Api</pre>
+
+  <hr>
+
+  <h2>Verify It Works</h2>
+
+  <p>Build and run the API:</p>
+  <pre>dotnet run --project src\OmniBlox.Api</pre>
+
+  <p>Then test with curl. First signup/login to get a token:</p>
+
+  <pre>
+<span class="hljs-comment" style="color:var(--muted);"># Login (from Lesson 3)</span>
+curl -X POST http://localhost:5112/auth/login ^
+  -H "Content-Type: application/json" ^
+  -d "{\"email\":\"admin@omniblox.com\",\"password\":\"password123\"}"
+
+<span class="hljs-comment" style="color:var(--muted);"># Save the token for subsequent requests</span>
+set TOKEN=&lt;token-from-login&gt;
+
+<span class="hljs-comment" style="color:var(--muted);"># Create a product</span>
+curl -X POST http://localhost:5112/products ^
+  -H "Content-Type: application/json" ^
+  -H "Authorization: Bearer %TOKEN%" ^
+  -d "{\"name\":\"Widget Pro\",\"sku\":\"WGT-001\",\"category\":\"Electronics\",\"unit\":\"pcs\",\"salePrice\":29.99,\"costPrice\":15.00,\"stockQuantity\":100,\"reorderLevel\":10}"
+
+<span class="hljs-comment" style="color:var(--muted);"># List products (auto-filtered to current company)</span>
+curl -X GET http://localhost:5112/products ^
+  -H "Authorization: Bearer %TOKEN%"
+
+<span class="hljs-comment" style="color:var(--muted);"># Get single product</span>
+curl -X GET http://localhost:5112/products/&lt;product-id&gt; ^
+  -H "Authorization: Bearer %TOKEN%"
+
+<span class="hljs-comment" style="color:var(--muted);"># Update product</span>
+curl -X PUT http://localhost:5112/products/&lt;product-id&gt; ^
+  -H "Content-Type: application/json" ^
+  -H "Authorization: Bearer %TOKEN%" ^
+  -d "{\"name\":\"Widget Pro v2\",\"salePrice\":34.99}"
+
+<span class="hljs-comment" style="color:var(--muted);"># Delete product</span>
+curl -X DELETE http://localhost:5112/products/&lt;product-id&gt; ^
+  -H "Authorization: Bearer %TOKEN%"</pre>
+
+  <div class="callout success">
+    <strong>Expected results:</strong><br>
+    Create returns HTTP 201 with full <code>ProductDto</code> JSON (auto-assigned CompanyId).<br>
+    List returns HTTP 200 with <code>{ items: [...], total: 1, page: 1, limit: 20 }</code>.<br>
+    Detail returns HTTP 200 with full <code>ProductDto</code>.<br>
+    Update returns HTTP 200 with updated fields (untouched fields stay the same).<br>
+    Delete returns HTTP 204 (No Content).<br>
+    Wrong company's products are invisible — test by signing up a second company and listing products.
+  </div>
+
+  <hr>
+
+  <h2>NestJS → ASP.NET Core Mapping</h2>
+
+  <table>
+    <tr><th>NestJS / Prisma</th><th>ASP.NET Core</th></tr>
+    <tr><td>Prisma schema <code>@id @default(uuid())</code></td><td><code>BaseEntity.Id = Guid.NewGuid()</code></td></tr>
+    <tr><td>Manual <code>where: { companyId }</code> in every query</td><td><code>HasQueryFilter</code> — automatic, one setup</td></tr>
+    <tr><td>Prisma <code>@unique([companyId, sku])</code></td><td><code>HasIndex(p =&gt; new { p.CompanyId, p.SKU }).IsUnique()</code></td></tr>
+    <tr><td>Interceptors in Prisma (e.g., soft delete)</td><td><code>SaveChangesAsync</code> override + <code>ChangeTracker</code></td></tr>
+    <tr><td><code>@UseGuards(AuthGuard)</code> + manual tenant check</td><td><code>[Authorize]</code> + <code>HasQueryFilter</code> handles tenancy</td></tr>
+    <tr><td>DTOs with <code>@Expose()</code> / <code>@Transform()</code></td><td>Records with <code>{ get; init; }</code> + <code>FromEntity()</code></td></tr>
+  </table>
+
+  <hr>
+
+  <h2>Watch &amp; Read</h2>
+  <ul>
+    <li>
+      <a href="https://learn.microsoft.com/en-us/ef/core/querying/filters" target="_blank">
+        Global Query Filters (EF Core Docs)
+      </a>
+    </li>
+    <li>
+      <a href="https://learn.microsoft.com/en-us/dotnet/csharp/advanced-topics/expression-trees/" target="_blank">
+        Expression Trees (C# Docs)
+      </a>
+    </li>
+    <li>
+      <a href="https://learn.microsoft.com/en-us/ef/core/saving/change-tracker" target="_blank">
+        Change Tracker (EF Core Docs)
+      </a>
+    </li>
+  </ul>
+
+  <hr>
+
+  <h2>Check Your Understanding</h2>
+  <ol>
+    <li>Build and run the API — do the Products CRUD operations work?</li>
+    <li>What would happen if User implemented <code>ITenantEntity</code>? Why is it excluded?</li>
+    <li>How does the expression tree in <code>HasQueryFilter</code> bind to the correct <code>CompanyId</code> per request?</li>
+    <li>What happens in <code>SaveChangesAsync</code> when a handler sets <code>product.CompanyId = someOtherGuid</code>?</li>
+    <li>Trace the full flow: <code>POST /products</code> → which files does it touch?</li>
+    <li>How would you add multi-tenancy to a new entity <code>Warehouse</code>? What two things must you do?</li>
+    <li>Why is the <code>SKU</code> unique index composite (<code>CompanyId + SKU</code>) rather than just <code>SKU</code>?</li>
+  </ol>
+
+  <div class="callout">
+    <strong>Stuck?</strong> Build errors are expected on first run — check the error message
+    and ask me! Common issues: missing <code>using</code> directives, forgetting to add
+    <code>DbSet&lt;Product&gt;</code> to <code>IApplicationDbContext</code>, or the
+    <code>AppDbContext</code> constructor parameter mismatch.
+  </div>
+
+  <hr>
+
+  <p style="font-size:0.85rem; color:var(--muted);">
+    Next up: Lesson 5 — Expanding the domain with Categories, Brands &amp; Warehouses (or as you direct).
+  </p>
+</body>
+</html>

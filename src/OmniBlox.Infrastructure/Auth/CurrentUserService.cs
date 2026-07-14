@@ -32,8 +32,7 @@ public class CurrentUserService : ICurrentUserService
             var value = _httpContextAccessor.HttpContext?.User
                 .FindFirstValue("companyId");
 
-            return value is not null ? Guid.Parse(value)
-                : throw new UnauthorizedAccessException("Company not found in claims.");
+            return value is not null ? Guid.Parse(value) : Guid.Empty;
         }
     }
 
