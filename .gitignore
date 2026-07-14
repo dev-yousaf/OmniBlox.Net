@@ -365,3 +365,6 @@ FodyWeavers.xsd
 # User Secrets (local development overrides with real credentials)
 appsettings.Development.json
 appsettings.*.local.json
+
+# Real credentials — use appsettings.Sample.json as template
+src/OmniBlox.Api/appsettings.json
