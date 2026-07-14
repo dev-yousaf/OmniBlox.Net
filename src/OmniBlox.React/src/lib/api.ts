@@ -35,7 +35,7 @@ class ApiClient {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5005";
+    this.baseUrl = import.meta.env.VITE_API_URL || "";
   }
 
   private async request<T>(
