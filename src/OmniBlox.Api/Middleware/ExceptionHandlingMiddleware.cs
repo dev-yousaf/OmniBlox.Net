@@ -42,7 +42,7 @@ public class ExceptionHandlingMiddleware
 
         var result = JsonSerializer.Serialize(new
         {
-            error = message,
+            message,
             statusCode = (int)statusCode
         });
 

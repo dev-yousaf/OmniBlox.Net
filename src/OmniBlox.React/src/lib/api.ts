@@ -13,6 +13,18 @@ export interface User {
   };
 }
 
+export interface LoginResponse {
+  token: string;
+  user: User;
+  company: {
+    id: string;
+    name: string;
+    workspaceUrl: string;
+    industry?: string;
+    country?: string;
+  };
+}
+
 export interface AuthResponse {
   userId?: string;
   user: User;
@@ -64,13 +76,13 @@ class ApiClient {
         } catch {
           errorData = { raw: rawText };
         }
-
         const error = {
-          message: errorData?.message || `HTTP ${response.status}: ${response.statusText}`,
+          message:
+            errorData?.message || errorData?.error ||
+            `HTTP ${response.status}: ${response.statusText}`,
           statusCode: response.status,
           details: errorData,
         } as ApiError;
-
         console.warn(`API Error: ${error.message} (${options.method || "GET"} ${url}) [${response.status}]`);
         throw error;
       }
@@ -107,8 +119,8 @@ class ApiClient {
     });
   }
 
-  async login(email: string, password: string): Promise<{ userId?: string }> {
-    return this.request("/auth/login", {
+  async login(email: string, password: string): Promise<LoginResponse> {
+    return this.request<LoginResponse>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
