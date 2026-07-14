@@ -1,0 +1,57 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - OmniBlox</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body class="bg-gray-50">
+    <div class="flex h-screen overflow-hidden">
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            <aside class="w-64 bg-white border-r border-gray-200 flex flex-col">
+                <div class="h-16 flex items-center px-6 border-b border-gray-200">
+                    <a href="/" class="text-xl font-bold text-blue-600">OmniBlox</a>
+                </div>
+                <nav class="flex-1 overflow-y-auto p-4 space-y-1">
+                    <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-100 @(ViewContext.RouteData.Values["page"]?.ToString() == "/Index" ? "bg-blue-50 text-blue-700 font-medium" : "")">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                        Dashboard
+                    </a>
+                    <a href="/products" class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-100 @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Products") == true ? "bg-blue-50 text-blue-700 font-medium" : "")">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                        Products
+                    </a>
+                </nav>
+                <div class="p-4 border-t border-gray-200">
+                    <form asp-page="/Auth/Login" asp-page-handler="Logout" method="post" class="w-full">
+                        <button type="submit" class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-100 w-full">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                            Sign out
+                        </button>
+                    </form>
+                </div>
+            </aside>
+        }
+        <main class="flex-1 overflow-y-auto">
+            @if (User.Identity?.IsAuthenticated == true)
+            {
+                <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+                    <h1 class="text-lg font-semibold text-gray-900">@ViewData["Title"]</h1>
+                    <div class="flex items-center gap-3 text-sm text-gray-600">
+                        <span>@User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value</span>
+                    </div>
+                </header>
+            }
+            <div class="@(User.Identity?.IsAuthenticated == true ? "p-6" : "")">
+                @RenderBody()
+            </div>
+        </main>
+    </div>
+
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
