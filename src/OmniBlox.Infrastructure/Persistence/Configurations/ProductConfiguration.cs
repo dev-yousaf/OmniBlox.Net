@@ -31,6 +31,9 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
             .HasMaxLength(100)
             .IsRequired();
 
+        builder.Property(p => p.SubCategory)
+            .HasMaxLength(100);
+
         builder.Property(p => p.Brand)
             .HasMaxLength(100);
 
@@ -39,7 +42,7 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
             .IsRequired();
 
         builder.Property(p => p.ImageUrl)
-            .HasMaxLength(500);
+            .HasColumnType("text");
 
         builder.Property(p => p.SalePrice)
             .HasColumnType("decimal(18,2)")

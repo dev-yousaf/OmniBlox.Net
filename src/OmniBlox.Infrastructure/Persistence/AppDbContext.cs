@@ -22,6 +22,13 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<Company> Companies => Set<Company>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductCategory> ProductCategories => Set<ProductCategory>();
+    public DbSet<SubCategory> SubCategories => Set<SubCategory>();
+    public DbSet<Brand> Brands => Set<Brand>();
+    public DbSet<Unit> Units => Set<Unit>();
+    public DbSet<Warranty> Warranties => Set<Warranty>();
+    public DbSet<VariantAttribute> VariantAttributes => Set<VariantAttribute>();
+    public DbSet<StockLedgerEntry> StockLedgerEntries => Set<StockLedgerEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

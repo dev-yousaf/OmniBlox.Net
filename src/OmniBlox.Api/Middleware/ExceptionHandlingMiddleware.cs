@@ -27,6 +27,11 @@ public class ExceptionHandlingMiddleware
 
     private static async Task HandleExceptionAsync(HttpContext context, Exception ex)
     {
+#if DEBUG
+        Console.Error.WriteLine($"[Exception] {ex.GetType().Name}: {ex.Message}");
+        Console.Error.WriteLine(ex.StackTrace);
+#endif
+
         var (statusCode, message) = ex switch
         {
             UnauthorizedException => (HttpStatusCode.Unauthorized, ex.Message),

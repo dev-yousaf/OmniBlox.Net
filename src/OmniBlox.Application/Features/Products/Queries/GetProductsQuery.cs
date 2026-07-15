@@ -52,8 +52,9 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Product
 
         return new ProductListResponse
         {
-            Items = items.Select(ProductDto.FromEntity).ToList(),
+            Products = items.Select(ProductDto.FromEntity).ToList(),
             Total = total,
+            Pages = (int)Math.Ceiling((double)total / request.Limit),
             Page = request.Page,
             Limit = request.Limit,
         };

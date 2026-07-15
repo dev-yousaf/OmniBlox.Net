@@ -10,12 +10,13 @@ public record ProductDto
     public string? Description { get; init; }
     public string Type { get; init; } = string.Empty;
     public string Category { get; init; } = string.Empty;
+    public string? SubCategory { get; init; }
     public string? Brand { get; init; }
     public string Unit { get; init; } = string.Empty;
     public string? ImageUrl { get; init; }
     public decimal SalePrice { get; init; }
     public decimal CostPrice { get; init; }
-    public int StockQuantity { get; init; }
+    public int Stock { get; init; }
     public int ReorderLevel { get; init; }
     public string Status { get; init; } = string.Empty;
     public string? BarcodeSymbology { get; init; }
@@ -37,12 +38,13 @@ public record ProductDto
         Description = product.Description,
         Type = product.Type.ToString(),
         Category = product.Category,
+        SubCategory = product.SubCategory,
         Brand = product.Brand,
         Unit = product.Unit,
         ImageUrl = product.ImageUrl,
         SalePrice = product.SalePrice,
         CostPrice = product.CostPrice,
-        StockQuantity = product.StockQuantity,
+        Stock = product.Stock,
         ReorderLevel = product.ReorderLevel,
         Status = product.Status.ToString(),
         BarcodeSymbology = product.BarcodeSymbology,
@@ -60,8 +62,9 @@ public record ProductDto
 
 public record ProductListResponse
 {
-    public List<ProductDto> Items { get; init; } = [];
+    public List<ProductDto> Products { get; init; } = [];
     public int Total { get; init; }
+    public int Pages { get; init; }
     public int Page { get; init; }
     public int Limit { get; init; }
 }
@@ -73,12 +76,13 @@ public record CreateProductRequest
     public string? Description { get; init; }
     public string? Type { get; init; }
     public string Category { get; init; } = string.Empty;
+    public string? SubCategory { get; init; }
     public string? Brand { get; init; }
     public string Unit { get; init; } = string.Empty;
     public string? ImageUrl { get; init; }
     public decimal SalePrice { get; init; }
     public decimal CostPrice { get; init; }
-    public int StockQuantity { get; init; }
+    public int Stock { get; init; }
     public int ReorderLevel { get; init; }
     public string? Status { get; init; }
     public string? BarcodeSymbology { get; init; }
@@ -98,12 +102,13 @@ public record UpdateProductRequest
     public string? Description { get; init; }
     public string? Type { get; init; }
     public string? Category { get; init; }
+    public string? SubCategory { get; init; }
     public string? Brand { get; init; }
     public string? Unit { get; init; }
     public string? ImageUrl { get; init; }
     public decimal? SalePrice { get; init; }
     public decimal? CostPrice { get; init; }
-    public int? StockQuantity { get; init; }
+    public int? Stock { get; init; }
     public int? ReorderLevel { get; init; }
     public string? Status { get; init; }
     public string? BarcodeSymbology { get; init; }

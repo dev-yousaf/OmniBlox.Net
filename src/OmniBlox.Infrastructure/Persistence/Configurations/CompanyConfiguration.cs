@@ -34,6 +34,9 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
         builder.Property(c => c.Industry)
             .HasMaxLength(100);
 
+        builder.Property(c => c.OtherIndustry)
+            .HasMaxLength(100);
+
         builder.Property(c => c.Country)
             .HasMaxLength(100);
 

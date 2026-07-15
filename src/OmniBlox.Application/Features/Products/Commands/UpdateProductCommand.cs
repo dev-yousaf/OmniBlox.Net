@@ -17,12 +17,13 @@ public record UpdateProductCommand : IRequest<ProductDto>
     public string? Description { get; init; }
     public string? Type { get; init; }
     public string? Category { get; init; }
+    public string? SubCategory { get; init; }
     public string? Brand { get; init; }
     public string? Unit { get; init; }
     public string? ImageUrl { get; init; }
     public decimal? SalePrice { get; init; }
     public decimal? CostPrice { get; init; }
-    public int? StockQuantity { get; init; }
+    public int? Stock { get; init; }
     public int? ReorderLevel { get; init; }
     public string? Status { get; init; }
     public string? BarcodeSymbology { get; init; }
@@ -67,12 +68,13 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         if (request.Type is not null && Enum.TryParse<ProductType>(request.Type, true, out var type))
             product.Type = type;
         if (request.Category is not null) product.Category = request.Category;
+        if (request.SubCategory is not null) product.SubCategory = request.SubCategory;
         if (request.Brand is not null) product.Brand = request.Brand;
         if (request.Unit is not null) product.Unit = request.Unit;
         if (request.ImageUrl is not null) product.ImageUrl = request.ImageUrl;
         if (request.SalePrice.HasValue) product.SalePrice = request.SalePrice.Value;
         if (request.CostPrice.HasValue) product.CostPrice = request.CostPrice.Value;
-        if (request.StockQuantity.HasValue) product.StockQuantity = request.StockQuantity.Value;
+        if (request.Stock.HasValue) product.Stock = request.Stock.Value;
         if (request.ReorderLevel.HasValue) product.ReorderLevel = request.ReorderLevel.Value;
         if (request.Status is not null && Enum.TryParse<ProductStatus>(request.Status, true, out var status))
             product.Status = status;
@@ -117,8 +119,8 @@ public class UpdateProductCommandValidator : AbstractValidator<UpdateProductComm
         RuleFor(v => v.CostPrice)
             .GreaterThanOrEqualTo(0).When(v => v.CostPrice.HasValue);
 
-        RuleFor(v => v.StockQuantity)
-            .GreaterThanOrEqualTo(0).When(v => v.StockQuantity.HasValue);
+        RuleFor(v => v.Stock)
+            .GreaterThanOrEqualTo(0).When(v => v.Stock.HasValue);
 
         RuleFor(v => v.ReorderLevel)
             .GreaterThanOrEqualTo(0).When(v => v.ReorderLevel.HasValue);

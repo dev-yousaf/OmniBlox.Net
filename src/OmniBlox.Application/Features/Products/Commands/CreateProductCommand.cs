@@ -16,12 +16,13 @@ public record CreateProductCommand : IRequest<ProductDto>
     public string? Description { get; init; }
     public string Type { get; init; } = "STANDARD";
     public string Category { get; init; } = string.Empty;
+    public string? SubCategory { get; init; }
     public string? Brand { get; init; }
     public string Unit { get; init; } = string.Empty;
     public string? ImageUrl { get; init; }
     public decimal SalePrice { get; init; }
     public decimal CostPrice { get; init; }
-    public int StockQuantity { get; init; }
+    public int Stock { get; init; }
     public int ReorderLevel { get; init; }
     public string Status { get; init; } = "ACTIVE";
     public string? BarcodeSymbology { get; init; }
@@ -58,12 +59,13 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             Description = request.Description,
             Type = Enum.TryParse<ProductType>(request.Type, true, out var type) ? type : ProductType.STANDARD,
             Category = request.Category,
+            SubCategory = request.SubCategory,
             Brand = request.Brand,
             Unit = request.Unit,
             ImageUrl = request.ImageUrl,
             SalePrice = request.SalePrice,
             CostPrice = request.CostPrice,
-            StockQuantity = request.StockQuantity,
+            Stock = request.Stock,
             ReorderLevel = request.ReorderLevel,
             Status = Enum.TryParse<ProductStatus>(request.Status, true, out var status) ? status : ProductStatus.ACTIVE,
             BarcodeSymbology = request.BarcodeSymbology,
@@ -109,7 +111,7 @@ public class CreateProductCommandValidator : AbstractValidator<CreateProductComm
         RuleFor(v => v.CostPrice)
             .GreaterThanOrEqualTo(0).WithMessage("Cost price must be non-negative.");
 
-        RuleFor(v => v.StockQuantity)
+        RuleFor(v => v.Stock)
             .GreaterThanOrEqualTo(0).WithMessage("Stock quantity must be non-negative.");
 
         RuleFor(v => v.ReorderLevel)

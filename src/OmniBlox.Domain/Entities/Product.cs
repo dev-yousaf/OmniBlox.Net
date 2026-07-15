@@ -10,13 +10,14 @@ public class Product : BaseEntity, ITenantEntity
     public string? Description { get; set; }
     public ProductType Type { get; set; } = ProductType.STANDARD;
     public string Category { get; set; } = string.Empty;
+    public string? SubCategory { get; set; }
     public string? Brand { get; set; }
     public string Unit { get; set; } = string.Empty;
     public string? ImageUrl { get; set; }
 
     public decimal SalePrice { get; set; }
     public decimal CostPrice { get; set; }
-    public int StockQuantity { get; set; }
+    public int Stock { get; set; }
     public int ReorderLevel { get; set; }
 
     public ProductStatus Status { get; set; } = ProductStatus.ACTIVE;
