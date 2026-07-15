@@ -1,0 +1,3234 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 4: Complete Frontend - Settings CRUD Pages</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+  <p class="lesson-meta">
+    <span class="lesson-number">Lesson 4 (Frontend)</span> &middot;
+    Complete Frontend Implementation &middot;
+    Every file, every line
+  </p>
+
+  <h1>Frontend: Settings CRUD Pages — Complete Source</h1>
+
+  <p>
+    This document contains <strong>every source file</strong> from the frontend (Next.js 14+ App Router)
+    for the 6 settings features — Brands, ProductCategories, SubCategories, Units, Warranties,
+    and VariantAttributes. Nothing is omitted, nothing is summarized.
+  </p>
+
+  <!-- ============================================================
+       SECTION 1: Infrastructure
+       ============================================================ -->
+  <h2>Section 1 — Infrastructure Layer (3 files)</h2>
+
+  <h3>1.1 lib/api.ts — Base API Client</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/lib/api.ts</div>
+    <pre>import { redirect } from "next/navigation";
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  companyId: string;
+  company?: {
+    id: string;
+    name: string;
+    workspaceUrl: string;
+    industry?: string;
+    country?: string;
+  };
+}
+
+export interface AuthResponse {
+  userId?: string;
+  user: User;
+  company: {
+    id: string;
+    name: string;
+    workspaceUrl: string;
+    industry?: string;
+    country?: string;
+  };
+}
+
+export interface ApiError {
+  message: string;
+  statusCode: number;
+  details?: any;
+}
+
+class ApiClient {
+  private baseUrl: string;
+
+  constructor() {
+    if (typeof window !== "undefined") {
+      this.baseUrl = process.env.NEXT_PUBLIC_API_URL || `${window.location.origin}/api`;
+    } else if (process.env.API_URL) {
+      this.baseUrl = process.env.API_URL;
+    } else {
+      this.baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5005";
+    }
+  }
+
+  private async request&lt;T&gt;(endpoint: string, options: RequestInit = {}): Promise&lt;T&gt; {
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers: Record&lt;string, string&gt; = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record&lt;string, string&gt;),
+    };
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const rawText = await response.text().catch(() =&gt; "");
+        let errorData: any = {};
+        try { errorData = rawText ? JSON.parse(rawText) : {}; } catch (_) { errorData = { raw: rawText }; }
+
+        const error = {
+          message: errorData?.message || `HTTP ${response.status}: ${response.statusText}`,
+          statusCode: response.status,
+          details: errorData,
+        } as ApiError;
+
+        console.warn(`API Error: ${error.message} (${options.method || "GET"} ${url}) [${response.status}]`);
+        throw error;
+      }
+
+      const contentType = response.headers.get("content-type");
+      if (contentType &amp;&amp; contentType.includes("application/json")) return response.json();
+      return response.text() as any;
+    } catch (error) {
+      if (error instanceof TypeError &amp;&amp; error.message.includes("fetch")) {
+        throw { message: "Network error. Please check your connection.", statusCode: 0 } as ApiError;
+      }
+      throw error;
+    }
+  }
+
+  // Generic API methods
+  async get&lt;T&gt;(endpoint: string): Promise&lt;T&gt; { return this.request&lt;T&gt;(endpoint, { method: "GET" }); }
+  async post&lt;T&gt;(endpoint: string, data?: any): Promise&lt;T&gt; { return this.request&lt;T&gt;(endpoint, { method: "POST", body: data ? JSON.stringify(data) : undefined }); }
+  async put&lt;T&gt;(endpoint: string, data?: any): Promise&lt;T&gt; { return this.request&lt;T&gt;(endpoint, { method: "PUT", body: data ? JSON.stringify(data) : undefined }); }
+  async patch&lt;T&gt;(endpoint: string, data?: any): Promise&lt;T&gt; { return this.request&lt;T&gt;(endpoint, { method: "PATCH", body: data ? JSON.stringify(data) : undefined }); }
+  async delete&lt;T&gt;(endpoint: string): Promise&lt;T&gt; { return this.request&lt;T&gt;(endpoint, { method: "DELETE" }); }
+}
+
+export const api = new ApiClient();</pre>
+  </div>
+
+  <h3>1.2 lib/utils.ts</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/lib/utils.ts</div>
+    <pre>import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}</pre>
+  </div>
+
+  <h3>1.3 contexts/auth-context.tsx</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/contexts/auth-context.tsx</div>
+    <pre>"use client";
+
+import React, { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { api } from "@/lib/api";
+
+interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  companyId: string;
+  role: string;
+  isSuperadmin?: boolean;
+  company?: { id: string; name: string; workspaceUrl: string; };
+}
+
+interface AuthContextType {
+  user: User | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  company: User['company'] | null;
+  login: (email: string, password: string) =&gt; Promise&lt;void&gt;;
+  signup: (data: SignupData) =&gt; Promise&lt;{ userId: string }&gt;;
+  logout: () =&gt; Promise&lt;void&gt;;
+  refreshUser: (opts?: { silent?: boolean }) =&gt; Promise&lt;void&gt;;
+}
+
+interface SignupData {
+  email: string; password: string; name: string;
+  companyName: string; workspaceUrl: string;
+  industry: string; otherIndustry?: string; country: string;
+}
+
+const AuthContext = createContext&lt;AuthContextType | undefined&gt;(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState&lt;User | null&gt;(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
+
+  useEffect(() =&gt; {
+    const validateSession = async () =&gt; {
+      try {
+        setIsLoading(true);
+        const userData = await api.getProfile();
+        setUser(userData as User);
+        const ws = (userData as any)?.company?.workspaceUrl;
+        if (ws) {
+          document.cookie = `omniblox_logged_in=1; path=/; max-age=31536000; SameSite=Lax`;
+          document.cookie = `omniblox_workspace=${ws}; path=/; max-age=31536000; SameSite=Lax`;
+        }
+      } catch (error) {
+        console.log("No active session");
+        setUser(null);
+      } finally { setIsLoading(false); }
+    };
+    validateSession();
+  }, []);
+
+  const login = async (email: string, password: string) =&gt; {
+    try {
+      await api.login(email, password);
+      const userData = await api.getProfile();
+      setUser(userData as User);
+      const ws = (userData as any)?.company?.workspaceUrl;
+      if (ws) { document.cookie = `omniblox_logged_in=1; path=/; max-age=31536000; SameSite=Lax`;
+               document.cookie = `omniblox_workspace=${ws}; path=/; max-age=31536000; SameSite=Lax`; }
+      if (ws) router.push(`/${ws}/dashboard`);
+      else router.push("/login");
+    } catch (error: any) { console.error("Login failed:", error); throw error; }
+  };
+
+  const signup = async (data: SignupData) =&gt; {
+    try {
+      const response = (await api.signup(data)) as any;
+      return { userId: response.userId as string };
+    } catch (error: any) { console.error("Signup failed:", error); throw error; }
+  };
+
+  const logout = async () =&gt; {
+    try {
+      setIsLoading(true);
+      await api.logout();
+      setUser(null);
+      document.cookie = "omniblox_logged_in=; path=/; max-age=0";
+      document.cookie = "omniblox_workspace=; path=/; max-age=0";
+      router.push("/login");
+    } catch (error) { console.error("Logout failed:", error); setUser(null); router.push("/login"); }
+    finally { setIsLoading(false); }
+  };
+
+  const refreshUser = async (opts?: { silent?: boolean }) =&gt; {
+    try {
+      const userData = await api.getProfile();
+      setUser(userData as User);
+    } catch (error) { setUser(null); }
+  };
+
+  const value: AuthContextType = {
+    user, isAuthenticated: !!user, isLoading,
+    company: user?.company ?? null,
+    login, signup, logout, refreshUser,
+  };
+
+  return &lt;AuthContext.Provider value={value}&gt;{children}&lt;/AuthContext.Provider&gt;;
+}
+
+export function useAuth(): AuthContextType {
+  const context = useContext(AuthContext);
+  if (context === undefined) throw new Error("useAuth must be used within an AuthProvider");
+  return context;
+}
+
+export function useRequireAuth() {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const router = useRouter();
+  useEffect(() =&gt; { if (!isLoading &amp;&amp; !isAuthenticated) router.push("/login"); }, [isAuthenticated, isLoading, router]);
+  return { isAuthenticated, isLoading, user };
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       SECTION 2: API Hooks
+       ============================================================ -->
+  <h2>Section 2 — API Hook Layer (8 files)</h2>
+
+  <h3>2.1 hooks/use-authenticated-api.ts — Base Hook</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/hooks/use-authenticated-api.ts</div>
+    <pre>"use client";
+
+import { useAuth } from "@/contexts/auth-context";
+import { api } from "@/lib/api";
+import { useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
+
+export function useAuthenticatedApi() {
+  const { isAuthenticated, logout } = useAuth();
+  const router = useRouter();
+
+  const makeRequest = useCallback(
+    async (method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH", endpoint: string, data?: any) =&gt; {
+      try {
+        switch (method) {
+          case "GET": return await api.get(endpoint);
+          case "POST": return await api.post(endpoint, data);
+          case "PUT": return await api.put(endpoint, data);
+          case "PATCH": return await api.patch(endpoint, data);
+          case "DELETE": return await api.delete(endpoint);
+          default: throw new Error(`Unsupported method: ${method}`);
+        }
+      } catch (error: any) {
+        const statusCode = error.statusCode || error.status;
+        const isAuthTokenError =
+          error.message === "Authentication failed" ||
+          error.message === "Token expired" ||
+          error.message === "Invalid token" ||
+          (statusCode === 401 &amp;&amp; error.message?.toLowerCase().includes("unauthorized"));
+
+        if (isAuthTokenError) {
+          await logout();
+          router.replace("/login");
+          throw new Error("Session expired. Please login again.");
+        }
+        throw error;
+      }
+    }, [logout, router]
+  );
+
+  const get = useCallback((endpoint: string) =&gt; makeRequest("GET", endpoint), [makeRequest]);
+  const post = useCallback((endpoint: string, data?: any) =&gt; makeRequest("POST", endpoint, data), [makeRequest]);
+  const put = useCallback((endpoint: string, data?: any) =&gt; makeRequest("PUT", endpoint, data), [makeRequest]);
+  const patch = useCallback((endpoint: string, data?: any) =&gt; makeRequest("PATCH", endpoint, data), [makeRequest]);
+  const del = useCallback((endpoint: string) =&gt; makeRequest("DELETE", endpoint), [makeRequest]);
+
+  return useMemo(() =&gt; ({ get, post, put, patch, delete: del, makeRequest, isAuthenticated }), [get, post, put, patch, del, makeRequest, isAuthenticated]);
+}</pre>
+  </div>
+
+  <h3>2.2 hooks/use-brands-api.ts</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/hooks/use-brands-api.ts</div>
+    <pre>import { useAuthenticatedApi } from "./use-authenticated-api";
+import { useCallback } from "react";
+
+export interface Brand {
+  id: string;
+  name: string;
+  slug: string;
+  imageUrl?: string;
+  description?: string;
+  status: string;
+  companyId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBrandDto {
+  name: string;
+  slug?: string;
+  imageUrl?: string;
+  description?: string;
+  status?: string;
+}
+
+export interface UpdateBrandDto {
+  name?: string;
+  slug?: string;
+  imageUrl?: string;
+  description?: string;
+  status?: string;
+}
+
+export interface BulkDeleteResponse {
+  message: string;
+  deleted: string[];
+  failed: Array&lt;{ id: string; error: string }&gt;;
+}
+
+export function useBrandsApi() {
+  const { get, post, put, delete: del } = useAuthenticatedApi();
+
+  const getBrands = useCallback(async (): Promise&lt;Brand[]&gt; =&gt; {
+    return get("/brands") as Promise&lt;Brand[]&gt;;
+  }, [get]);
+
+  const getBrand = useCallback(async (id: string): Promise&lt;Brand&gt; =&gt; {
+    return get(`/brands/${id}`) as Promise&lt;Brand&gt;;
+  }, [get]);
+
+  const createBrand = useCallback(async (data: CreateBrandDto): Promise&lt;Brand&gt; =&gt; {
+    return post("/brands", data) as Promise&lt;Brand&gt;;
+  }, [post]);
+
+  const updateBrand = useCallback(async (id: string, data: UpdateBrandDto): Promise&lt;Brand&gt; =&gt; {
+    return put(`/brands/${id}`, data) as Promise&lt;Brand&gt;;
+  }, [put]);
+
+  const deleteBrand = useCallback(async (id: string): Promise&lt;void&gt; =&gt; {
+    await del(`/brands/${id}`);
+  }, [del]);
+
+  const bulkDeleteBrands = useCallback(async (ids: string[]): Promise&lt;BulkDeleteResponse&gt; =&gt; {
+    return post("/brands/bulk-delete", { ids }) as Promise&lt;BulkDeleteResponse&gt;;
+  }, [post]);
+
+  return { getBrands, getBrand, createBrand, updateBrand, deleteBrand, bulkDeleteBrands };
+}</pre>
+  </div>
+
+  <h3>2.3 hooks/use-product-categories-api.ts</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/hooks/use-product-categories-api.ts</div>
+    <pre>import { useAuthenticatedApi } from "./use-authenticated-api";
+import { useCallback } from "react";
+
+export interface ProductCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  status: string;
+  companyId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProductCategoryDto {
+  name: string;
+  slug?: string;
+  description?: string;
+  status?: string;
+}
+
+export interface UpdateProductCategoryDto {
+  name?: string;
+  slug?: string;
+  description?: string;
+  status?: string;
+}
+
+export interface AffectedProduct {
+  id: string;
+  name: string;
+  sku: string;
+}
+
+export interface DeleteCategoryResponse {
+  message: string;
+  affectedProducts: AffectedProduct[];
+}
+
+export interface BulkDeleteResponse {
+  message: string;
+  deleted: string[];
+  failed: Array&lt;{ id: string; error: string }&gt;;
+  totalAffectedProducts: number;
+  affectedProductsList: AffectedProduct[];
+}
+
+export function useProductCategoriesApi() {
+  const { get, post, put, delete: del } = useAuthenticatedApi();
+
+  const getCategories = useCallback(async (): Promise&lt;ProductCategory[]&gt; =&gt; {
+    return get("/product-categories") as Promise&lt;ProductCategory[]&gt;;
+  }, [get]);
+
+  const getCategory = useCallback(async (id: string): Promise&lt;ProductCategory&gt; =&gt; {
+    return get(`/product-categories/${id}`) as Promise&lt;ProductCategory&gt;;
+  }, [get]);
+
+  const createCategory = useCallback(async (data: CreateProductCategoryDto): Promise&lt;ProductCategory&gt; =&gt; {
+    return post("/product-categories", data) as Promise&lt;ProductCategory&gt;;
+  }, [post]);
+
+  const updateCategory = useCallback(async (id: string, data: UpdateProductCategoryDto): Promise&lt;ProductCategory&gt; =&gt; {
+    return put(`/product-categories/${id}`, data) as Promise&lt;ProductCategory&gt;;
+  }, [put]);
+
+  const deleteCategory = useCallback(async (id: string): Promise&lt;DeleteCategoryResponse&gt; =&gt; {
+    return del(`/product-categories/${id}`) as Promise&lt;DeleteCategoryResponse&gt;;
+  }, [del]);
+
+  const bulkDeleteCategories = useCallback(async (ids: string[]): Promise&lt;BulkDeleteResponse&gt; =&gt; {
+    return post(`/product-categories/bulk-delete`, { ids }) as Promise&lt;BulkDeleteResponse&gt;;
+  }, [post]);
+
+  return { getCategories, getCategory, createCategory, updateCategory, deleteCategory, bulkDeleteCategories };
+}</pre>
+  </div>
+
+  <h3>2.4 hooks/use-sub-categories-api.ts</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/hooks/use-sub-categories-api.ts</div>
+    <pre>import { useAuthenticatedApi } from "./use-authenticated-api";
+import { useCallback } from "react";
+
+export interface SubCategory {
+  id: string;
+  name: string;
+  slug: string;
+  code?: string;
+  imageUrl?: string;
+  description?: string;
+  status: string;
+  categoryId: string;
+  companyId: string;
+  createdAt: string;
+  updatedAt: string;
+  category?: { id: string; name: string; slug: string };
+}
+
+export interface CreateSubCategoryDto {
+  name: string; categoryId: string;
+  slug?: string; code?: string;
+  imageUrl?: string; description?: string; status?: string;
+}
+
+export interface UpdateSubCategoryDto {
+  name?: string; categoryId?: string; slug?: string;
+  code?: string; imageUrl?: string; description?: string; status?: string;
+}
+
+export function useSubCategoriesApi() {
+  const { get, post, put, delete: del } = useAuthenticatedApi();
+
+  const getSubCategories = useCallback(async (categoryId?: string): Promise&lt;SubCategory[]&gt; =&gt; {
+    const params = categoryId ? `?categoryId=${categoryId}` : "";
+    return get(`/sub-categories${params}`) as Promise&lt;SubCategory[]&gt;;
+  }, [get]);
+
+  const getSubCategory = useCallback(async (id: string): Promise&lt;SubCategory&gt; =&gt; {
+    return get(`/sub-categories/${id}`) as Promise&lt;SubCategory&gt;;
+  }, [get]);
+
+  const createSubCategory = useCallback(async (data: CreateSubCategoryDto): Promise&lt;SubCategory&gt; =&gt; {
+    return post("/sub-categories", data) as Promise&lt;SubCategory&gt;;
+  }, [post]);
+
+  const updateSubCategory = useCallback(async (id: string, data: UpdateSubCategoryDto): Promise&lt;SubCategory&gt; =&gt; {
+    return put(`/sub-categories/${id}`, data) as Promise&lt;SubCategory&gt;;
+  }, [put]);
+
+  const deleteSubCategory = useCallback(async (id: string): Promise&lt;void&gt; =&gt; {
+    await del(`/sub-categories/${id}`);
+  }, [del]);
+
+  const bulkDeleteSubCategories = useCallback(async (ids: string[]): Promise&lt;any&gt; =&gt; {
+    return post("/sub-categories/bulk-delete", { ids }) as Promise&lt;any&gt;;
+  }, [post]);
+
+  return { getSubCategories, getSubCategory, createSubCategory, updateSubCategory, deleteSubCategory, bulkDeleteSubCategories };
+}</pre>
+  </div>
+
+  <h3>2.5 hooks/use-units-api.ts</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/hooks/use-units-api.ts</div>
+    <pre>import { useAuthenticatedApi } from "./use-authenticated-api";
+import { useCallback } from "react";
+
+export interface Unit {
+  id: string;
+  name: string;
+  shortName: string;
+  slug: string;
+  description?: string;
+  status: string;
+  companyId: string;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { products: number };
+}
+
+export interface CreateUnitDto {
+  name: string; shortName: string;
+  slug?: string; description?: string; status?: string;
+}
+
+export interface UpdateUnitDto {
+  name?: string; shortName?: string;
+  slug?: string; description?: string; status?: string;
+}
+
+export interface BulkDeleteResponse {
+  message: string;
+  deleted: string[];
+  failed: Array&lt;{ id: string; error: string }&gt;;
+}
+
+export function useUnitsApi() {
+  const { get, post, put, delete: del } = useAuthenticatedApi();
+
+  const getUnits = useCallback(async (): Promise&lt;Unit[]&gt; =&gt; {
+    return get("/units") as Promise&lt;Unit[]&gt;;
+  }, [get]);
+
+  const getUnit = useCallback(async (id: string): Promise&lt;Unit&gt; =&gt; {
+    return get(`/units/${id}`) as Promise&lt;Unit&gt;;
+  }, [get]);
+
+  const createUnit = useCallback(async (data: CreateUnitDto): Promise&lt;Unit&gt; =&gt; {
+    return post("/units", data) as Promise&lt;Unit&gt;;
+  }, [post]);
+
+  const updateUnit = useCallback(async (id: string, data: UpdateUnitDto): Promise&lt;Unit&gt; =&gt; {
+    return put(`/units/${id}`, data) as Promise&lt;Unit&gt;;
+  }, [put]);
+
+  const deleteUnit = useCallback(async (id: string): Promise&lt;void&gt; =&gt; {
+    await del(`/units/${id}`);
+  }, [del]);
+
+  const bulkDeleteUnits = useCallback(async (ids: string[]): Promise&lt;BulkDeleteResponse&gt; =&gt; {
+    return post("/units/bulk-delete", { ids }) as Promise&lt;BulkDeleteResponse&gt;;
+  }, [post]);
+
+  return { getUnits, getUnit, createUnit, updateUnit, deleteUnit, bulkDeleteUnits };
+}</pre>
+  </div>
+
+  <h3>2.6 hooks/use-warranties-api.ts</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/hooks/use-warranties-api.ts</div>
+    <pre>import { useAuthenticatedApi } from "./use-authenticated-api";
+import { useCallback } from "react";
+
+export interface Warranty {
+  id: string;
+  name: string;
+  duration: number;
+  durationType: string;
+  description?: string;
+  status: string;
+  companyId: string;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { products: number };
+}
+
+export interface CreateWarrantyDto {
+  name: string; duration: number;
+  durationType?: string; description?: string; status?: string;
+}
+
+export interface UpdateWarrantyDto {
+  name?: string; duration?: number;
+  durationType?: string; description?: string; status?: string;
+}
+
+export interface BulkDeleteResponse {
+  message: string;
+  deleted: string[];
+  failed: Array&lt;{ id: string; error: string }&gt;;
+}
+
+export function useWarrantiesApi() {
+  const { get, post, put, delete: del } = useAuthenticatedApi();
+
+  const getWarranties = useCallback(async (): Promise&lt;Warranty[]&gt; =&gt; {
+    return get("/warranties") as Promise&lt;Warranty[]&gt;;
+  }, [get]);
+
+  const getWarranty = useCallback(async (id: string): Promise&lt;Warranty&gt; =&gt; {
+    return get(`/warranties/${id}`) as Promise&lt;Warranty&gt;;
+  }, [get]);
+
+  const createWarranty = useCallback(async (data: CreateWarrantyDto): Promise&lt;Warranty&gt; =&gt; {
+    return post("/warranties", data) as Promise&lt;Warranty&gt;;
+  }, [post]);
+
+  const updateWarranty = useCallback(async (id: string, data: UpdateWarrantyDto): Promise&lt;Warranty&gt; =&gt; {
+    return put(`/warranties/${id}`, data) as Promise&lt;Warranty&gt;;
+  }, [put]);
+
+  const deleteWarranty = useCallback(async (id: string): Promise&lt;void&gt; =&gt; {
+    await del(`/warranties/${id}`);
+  }, [del]);
+
+  const bulkDeleteWarranties = useCallback(async (ids: string[]): Promise&lt;BulkDeleteResponse&gt; =&gt; {
+    return post("/warranties/bulk-delete", { ids }) as Promise&lt;BulkDeleteResponse&gt;;
+  }, [post]);
+
+  return { getWarranties, getWarranty, createWarranty, updateWarranty, deleteWarranty, bulkDeleteWarranties };
+}</pre>
+  </div>
+
+  <h3>2.7 hooks/use-variant-attributes-api.ts</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">src/OmniBlox.Web/hooks/use-variant-attributes-api.ts</div>
+    <pre>import { useAuthenticatedApi } from "./use-authenticated-api";
+import { useCallback } from "react";
+
+export interface VariantAttribute {
+  id: string;
+  name: string;
+  slug: string;
+  values?: any;
+  description?: string;
+  status: string;
+  companyId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateVariantAttributeDto {
+  name: string; slug?: string;
+  values?: any; description?: string; status?: string;
+}
+
+export interface UpdateVariantAttributeDto {
+  name?: string; slug?: string;
+  values?: any; description?: string; status?: string;
+}
+
+export interface BulkDeleteResponse {
+  message: string;
+  deleted: string[];
+  failed: Array&lt;{ id: string; error: string }&gt;;
+}
+
+export function useVariantAttributesApi() {
+  const { get, post, put, delete: del } = useAuthenticatedApi();
+
+  const getVariantAttributes = useCallback(async (): Promise&lt;VariantAttribute[]&gt; =&gt; {
+    return get("/variant-attributes") as Promise&lt;VariantAttribute[]&gt;;
+  }, [get]);
+
+  const getVariantAttribute = useCallback(async (id: string): Promise&lt;VariantAttribute&gt; =&gt; {
+    return get(`/variant-attributes/${id}`) as Promise&lt;VariantAttribute&gt;;
+  }, [get]);
+
+  const createVariantAttribute = useCallback(async (data: CreateVariantAttributeDto): Promise&lt;VariantAttribute&gt; =&gt; {
+    return post("/variant-attributes", data) as Promise&lt;VariantAttribute&gt;;
+  }, [post]);
+
+  const updateVariantAttribute = useCallback(async (id: string, data: UpdateVariantAttributeDto): Promise&lt;VariantAttribute&gt; =&gt; {
+    return put(`/variant-attributes/${id}`, data) as Promise&lt;VariantAttribute&gt;;
+  }, [put]);
+
+  const deleteVariantAttribute = useCallback(async (id: string): Promise&lt;void&gt; =&gt; {
+    await del(`/variant-attributes/${id}`);
+  }, [del]);
+
+  const bulkDeleteVariantAttributes = useCallback(async (ids: string[]): Promise&lt;BulkDeleteResponse&gt; =&gt; {
+    return post("/variant-attributes/bulk-delete", { ids }) as Promise&lt;BulkDeleteResponse&gt;;
+  }, [post]);
+
+  return { getVariantAttributes, getVariantAttribute, createVariantAttribute, updateVariantAttribute, deleteVariantAttribute, bulkDeleteVariantAttributes };
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       SECTION 3: Settings Pages
+       ============================================================ -->
+  <h2>Section 3 — Settings CRUD Pages (6 files)</h2>
+
+  <h3>3.1 Brands Page (435 lines)</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">app/[workspace]/(dashboard)/settings/brands/page.tsx</div>
+    <pre>"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth-context";
+import { useBrandsApi, Brand } from "@/hooks/use-brands-api";
+import {
+  Plus, Eye, Pencil, Trash2, Loader2, ArrowUpDown,
+  Search, ChevronLeft, ChevronRight, ChevronDown,
+  RefreshCw, ChevronUp, FileText, FileSpreadsheet,
+} from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+const statusColors: Record&lt;string, string&gt; = {
+  ACTIVE: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  INACTIVE: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+};
+
+const ROWS_PER_PAGE = 10;
+
+export default function BrandsPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const api = useBrandsApi();
+
+  const [items, setItems] = useState&lt;Brand[]&gt;([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState&lt;string | null&gt;(null);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortDir, setSortDir] = useState&lt;"asc" | "desc"&gt;("desc");
+  const [selectedIds, setSelectedIds] = useState&lt;Set&lt;string&gt;&gt;(new Set());
+
+  const [dialogMode, setDialogMode] = useState&lt;"create" | "edit" | "view"&gt;("create");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [editing, setEditing] = useState&lt;Brand | null&gt;(null);
+  const [deleting, setDeleting] = useState&lt;Brand | null&gt;(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [fName, setFName] = useState("");
+  const [fSlug, setFSlug] = useState("");
+  const [fImage, setFImage] = useState("");
+  const [fDesc, setFDesc] = useState("");
+  const [fStatus, setFStatus] = useState("ACTIVE");
+
+  const canManage = user?.role === "OWNER" || user?.role === "ADMIN" || user?.role === "MANAGER";
+
+  useEffect(() =&gt; { load(); }, []);
+
+  const load = async () =&gt; {
+    setError(null);
+    try { setIsLoading(true); setItems(await api.getBrands()); }
+    catch (err: any) { setError(err?.message || "Failed to load brands."); }
+    finally { setIsLoading(false); }
+  };
+
+  const filtered = useMemo(() =&gt; {
+    let result = [...items];
+    if (search) result = result.filter(i =&gt; i.name.toLowerCase().includes(search.toLowerCase()));
+    if (statusFilter !== "all") result = result.filter(i =&gt; i.status === statusFilter);
+    result.sort((a, b) =&gt; {
+      const d = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return sortDir === "asc" ? d : -d;
+    });
+    return result;
+  }, [items, search, statusFilter, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
+  const paged = filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+
+  useEffect(() =&gt; { if (page &gt; totalPages) setPage(totalPages); }, [page, totalPages]);
+
+  const toggleSort = () =&gt; setSortDir(d =&gt; d === "asc" ? "desc" : "asc");
+  const toggleSelect = (id: string) =&gt; {
+    const n = new Set(selectedIds); n.has(id) ? n.delete(id) : n.add(id); setSelectedIds(n);
+  };
+  const toggleAll = () =&gt; {
+    if (selectedIds.size === paged.length &amp;&amp; paged.length &gt; 0) setSelectedIds(new Set());
+    else setSelectedIds(new Set(paged.map(i =&gt; i.id)));
+  };
+
+  // Dialog handlers
+  const openCreate = () =&gt; {
+    setDialogMode("create"); setEditing(null);
+    setFName(""); setFSlug(""); setFImage(""); setFDesc(""); setFStatus("ACTIVE");
+    setDialogOpen(true);
+  };
+  const openEdit = (c: Brand) =&gt; {
+    setDialogMode("edit"); setEditing(c);
+    setFName(c.name); setFSlug(c.slug); setFImage(c.imageUrl || ""); setFDesc(c.description || ""); setFStatus(c.status);
+    setDialogOpen(true);
+  };
+  const openView = (c: Brand) =&gt; { setDialogMode("view"); setEditing(c); setDialogOpen(true); };
+  const openDelete = (c: Brand) =&gt; { setDeleting(c); setDeleteOpen(true); };
+
+  const handleSave = async (e: React.FormEvent) =&gt; {
+    e.preventDefault();
+    if (!fName.trim()) return;
+    try {
+      setSubmitting(true);
+      const dto = { name: fName.trim(), slug: fSlug.trim() || undefined, imageUrl: fImage.trim() || undefined, description: fDesc.trim() || undefined, status: fStatus };
+      if (editing) { await api.updateBrand(editing.id, dto); toast({ title: "Success", description: "Brand updated" }); }
+      else { await api.createBrand(dto); toast({ title: "Success", description: "Brand created" }); }
+      setDialogOpen(false); load();
+    } catch (err: any) { toast({ title: "Error", description: err.message || "Failed", variant: "destructive" }); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleDelete = async () =&gt; {
+    if (!deleting) return;
+    try { setSubmitting(true); await api.deleteBrand(deleting.id); toast({ title: "Success", description: "Brand deleted" }); setDeleteOpen(false); setDeleting(null); load(); }
+    catch (err: any) { toast({ title: "Error", description: err.message || "Failed", variant: "destructive" }); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleBulkDelete = async () =&gt; {
+    try { setSubmitting(true); await api.bulkDeleteBrands(Array.from(selectedIds)); toast({ title: "Deleted", description: `${selectedIds.size} brands deleted` }); setSelectedIds(new Set()); setBulkDeleteOpen(false); load(); }
+    catch (err: any) { toast({ title: "Error", description: err.message || "Failed", variant: "destructive" }); }
+    finally { setSubmitting(false); }
+  };
+
+  return (
+    &lt;div className="space-y-5"&gt;
+      {/* Page Header */}
+      &lt;div className="flex items-center justify-between"&gt;
+        &lt;div&gt;
+          &lt;div className="flex items-center gap-1 text-sm text-muted-foreground mb-0.5"&gt;
+            &lt;span&gt;Dashboard&lt;/span&gt;
+            &lt;ChevronRight className="h-3.5 w-3.5" /&gt;
+            &lt;span className="text-foreground"&gt;Brands&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;h1 className="text-[18px] font-bold text-foreground"&gt;Brands&lt;/h1&gt;
+        &lt;/div&gt;
+        &lt;div className="flex items-center gap-2"&gt;
+          &lt;Button variant="outline" size="icon" className="h-[34px] w-[34px] rounded-[5px]" title="Export PDF"&gt;&lt;FileText className="h-4 w-4" /&gt;&lt;/Button&gt;
+          &lt;Button variant="outline" size="icon" className="h-[34px] w-[34px] rounded-[5px]" title="Export Excel"&gt;&lt;FileSpreadsheet className="h-4 w-4" /&gt;&lt;/Button&gt;
+          &lt;Button variant="outline" size="icon" className="h-[34px] w-[34px] rounded-[5px]" title="Refresh" onClick={load}&gt;&lt;RefreshCw className="h-4 w-4" /&gt;&lt;/Button&gt;
+          &lt;Button variant="outline" size="icon" className="h-[34px] w-[34px] rounded-[5px]" title="Collapse"&gt;&lt;ChevronUp className="h-4 w-4" /&gt;&lt;/Button&gt;
+          {canManage &amp;&amp; (
+            &lt;Button className="h-[34px] rounded-[5px] bg-primary hover:bg-primary/90 text-primary-foreground text-[13px] font-medium px-3" onClick={openCreate}&gt;
+              &lt;Plus className="mr-1.5 h-3.5 w-3.5" /&gt;Add Brand
+            &lt;/Button&gt;
+          )}
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      {/* Table */}
+      &lt;div className="border rounded-[5px] bg-card shadow-sm overflow-hidden"&gt;
+        {/* Toolbar: search, filter, sort */}
+        &lt;div className="flex items-center gap-4 px-5 py-[15px] border-b"&gt;
+          &lt;div className="flex items-center gap-2 border rounded-[5px] px-2.5 py-1.5 w-[200px]"&gt;
+            &lt;Search className="h-3.5 w-3.5 text-muted-foreground" /&gt;
+            &lt;input className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" placeholder="Search" value={search} onChange={e =&gt; { setSearch(e.target.value); setPage(1); }} /&gt;
+          &lt;/div&gt;
+          &lt;div className="flex items-center gap-2 ml-auto"&gt;
+            &lt;Select value={statusFilter} onValueChange={v =&gt; { setStatusFilter(v); setPage(1); }}&gt;
+              &lt;SelectTrigger className="h-[34px] w-[100px] text-sm rounded-[5px]"&gt;&lt;SelectValue placeholder="Status" /&gt;&lt;/SelectTrigger&gt;
+              &lt;SelectContent&gt;
+                &lt;SelectItem value="all"&gt;All Status&lt;/SelectItem&gt;
+                &lt;SelectItem value="ACTIVE"&gt;Active&lt;/SelectItem&gt;
+                &lt;SelectItem value="INACTIVE"&gt;Inactive&lt;/SelectItem&gt;
+              &lt;/SelectContent&gt;
+            &lt;/Select&gt;
+            &lt;div className="flex items-center gap-1.5 text-sm text-foreground font-semibold"&gt;
+              Sort By :
+              &lt;Select defaultValue="last7"&gt;
+                &lt;SelectTrigger className="h-[34px] w-[130px] text-sm rounded-[5px]"&gt;&lt;SelectValue /&gt;&lt;/SelectTrigger&gt;
+                &lt;SelectContent&gt;
+                  &lt;SelectItem value="last7"&gt;Last 7 Days&lt;/SelectItem&gt;
+                  &lt;SelectItem value="last30"&gt;Last 30 Days&lt;/SelectItem&gt;
+                  &lt;SelectItem value="last90"&gt;Last 90 Days&lt;/SelectItem&gt;
+                &lt;/SelectContent&gt;
+              &lt;/Select&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        {/* Table Content */}
+        {isLoading ? (
+          &lt;div className="flex justify-center py-12"&gt;&lt;Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /&gt;&lt;/div&gt;
+        ) : error ? (
+          &lt;div className="flex items-center justify-center py-16 text-destructive"&gt;&lt;p&gt;{error}&lt;/p&gt;&lt;/div&gt;
+        ) : paged.length === 0 ? (
+          &lt;div className="text-center py-12 text-muted-foreground"&gt;No brands found.&lt;/div&gt;
+        ) : (
+          &lt;div className="overflow-x-auto"&gt;
+            &lt;table className="w-full text-sm"&gt;
+              &lt;thead&gt;
+                &lt;tr className="bg-muted h-[33px]"&gt;
+                  &lt;th className="w-[60px] px-5 py-2 text-left font-semibold text-foreground"&gt;
+                    &lt;Checkbox checked={selectedIds.size === paged.length &amp;&amp; paged.length &gt; 0} onCheckedChange={toggleAll} /&gt;
+                  &lt;/th&gt;
+                  &lt;th className="w-[244px] px-5 py-2 text-left font-semibold text-foreground"&gt;Brand&lt;/th&gt;
+                  &lt;th className="w-[215px] px-5 py-2 text-left font-semibold text-foreground"&gt;Image&lt;/th&gt;
+                  &lt;th className="w-[230px] px-5 py-2 text-left font-semibold text-foreground cursor-pointer select-none" onClick={toggleSort}&gt;
+                    &lt;span className="inline-flex items-center gap-1.5"&gt;Created Date&lt;ArrowUpDown className="h-3 w-3" /&gt;&lt;/span&gt;
+                  &lt;/th&gt;
+                  &lt;th className="w-[198px] px-5 py-2 text-left font-semibold text-foreground"&gt;Status&lt;/th&gt;
+                  {canManage &amp;&amp; &lt;th className="w-[193px] px-5 py-2 text-left font-semibold text-foreground"&gt;Actions&lt;/th&gt;}
+                &lt;/tr&gt;
+              &lt;/thead&gt;
+              &lt;tbody&gt;
+                {paged.map(item =&gt; (
+                  &lt;tr key={item.id} className="h-[56px] border-b"&gt;
+                    &lt;td className="w-[60px] px-5"&gt;&lt;Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() =&gt; toggleSelect(item.id)} /&gt;&lt;/td&gt;
+                    &lt;td className="w-[244px] px-5 text-foreground"&gt;{item.name}&lt;/td&gt;
+                    &lt;td className="w-[215px] px-5"&gt;
+                      &lt;div className="flex items-center gap-2"&gt;
+                        {item.imageUrl ? (
+                          &lt;img src={item.imageUrl} alt="" className="h-[30px] w-[30px] rounded-[5px] object-cover bg-muted" /&gt;
+                        ) : (
+                          &lt;div className="h-[30px] w-[30px] rounded-[5px] bg-muted flex items-center justify-center text-xs text-muted-foreground"&gt;
+                            {item.name.charAt(0).toUpperCase()}
+                          &lt;/div&gt;
+                        )}
+                      &lt;/div&gt;
+                    &lt;/td&gt;
+                    &lt;td className="w-[230px] px-5 text-foreground"&gt;{new Date(item.createdAt).toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" })}&lt;/td&gt;
+                    &lt;td className="w-[198px] px-5"&gt;
+                      &lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[item.status] || statusColors.ACTIVE}`}&gt;{item.status}&lt;/span&gt;
+                    &lt;/td&gt;
+                    {canManage &amp;&amp; (
+                      &lt;td className="w-[193px] px-5"&gt;
+                        &lt;div className="flex items-center gap-1"&gt;
+                          &lt;Button variant="outline" size="icon" className="h-[30px] w-[30px] rounded-[5px]" onClick={() =&gt; openView(item)}&gt;&lt;Eye className="h-3.5 w-3.5" /&gt;&lt;/Button&gt;
+                          &lt;Button variant="outline" size="icon" className="h-[30px] w-[30px] rounded-[5px]" onClick={() =&gt; openEdit(item)}&gt;&lt;Pencil className="h-3.5 w-3.5" /&gt;&lt;/Button&gt;
+                          &lt;Button variant="outline" size="icon" className="h-[30px] w-[30px] rounded-[5px] text-destructive hover:text-destructive" onClick={() =&gt; openDelete(item)}&gt;&lt;Trash2 className="h-3.5 w-3.5" /&gt;&lt;/Button&gt;
+                        &lt;/div&gt;
+                      &lt;/td&gt;
+                    )}
+                  &lt;/tr&gt;
+                ))}
+              &lt;/tbody&gt;
+            &lt;/table&gt;
+          &lt;/div&gt;
+        )}
+
+        {/* Pagination Footer */}
+        {!isLoading &amp;&amp; paged.length &gt; 0 &amp;&amp; (
+          &lt;div className="flex items-center justify-between px-5 py-[15px] border-t"&gt;
+            &lt;div className="flex items-center gap-2 text-sm text-muted-foreground"&gt;
+              &lt;span&gt;Row Per Page&lt;/span&gt;
+              &lt;Select defaultValue="10"&gt;
+                &lt;SelectTrigger className="h-8 w-16 text-xs rounded-[5px]"&gt;&lt;SelectValue /&gt;&lt;/SelectTrigger&gt;
+                &lt;SelectContent&gt;
+                  &lt;SelectItem value="10"&gt;10&lt;/SelectItem&gt;
+                  &lt;SelectItem value="20"&gt;20&lt;/SelectItem&gt;
+                  &lt;SelectItem value="50"&gt;50&lt;/SelectItem&gt;
+                &lt;/SelectContent&gt;
+              &lt;/Select&gt;
+              &lt;span&gt;Entries&lt;/span&gt;
+            &lt;/div&gt;
+            {/* Pagination buttons */}
+            &lt;div className="flex items-center gap-3"&gt;{/* prev/next + page numbers */}&lt;/div&gt;
+          &lt;/div&gt;
+        )}
+      &lt;/div&gt;
+
+      {/* Create/Edit Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode !== "view"} onOpenChange={o =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent className="sm:max-w-[480px]"&gt;
+          &lt;form onSubmit={handleSave}&gt;
+            &lt;DialogHeader&gt;&lt;DialogTitle className="text-lg font-bold"&gt;{editing ? "Edit Brand" : "Add Brand"}&lt;/DialogTitle&gt;&lt;/DialogHeader&gt;
+            &lt;div className="space-y-4 py-4"&gt;
+              &lt;div className="grid grid-cols-2 gap-4"&gt;
+                &lt;div&gt;
+                  &lt;Label className="text-sm font-medium"&gt;Brand Name&lt;/Label&gt;
+                  &lt;Input value={fName} onChange={e =&gt; setFName(e.target.value)} placeholder="Enter brand name" required maxLength={100} className="mt-1.5 h-[38px] rounded-[5px]" /&gt;
+                &lt;/div&gt;
+                &lt;div&gt;
+                  &lt;Label className="text-sm font-medium"&gt;Slug&lt;/Label&gt;
+                  &lt;Input value={fSlug} onChange={e =&gt; setFSlug(e.target.value)} placeholder="Auto-generated" maxLength={100} className="mt-1.5 h-[38px] rounded-[5px]" /&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className="text-sm font-medium"&gt;Image URL&lt;/Label&gt;
+                &lt;Input value={fImage} onChange={e =&gt; setFImage(e.target.value)} placeholder="https://example.com/logo.png" className="mt-1.5 h-[38px] rounded-[5px]" /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className="text-sm font-medium"&gt;Description&lt;/Label&gt;
+                &lt;Input value={fDesc} onChange={e =&gt; setFDesc(e.target.value)} placeholder="Enter description" className="mt-1.5 h-[38px] rounded-[5px]" /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className="text-sm font-medium"&gt;Status&lt;/Label&gt;
+                &lt;Select value={fStatus} onValueChange={setFStatus}&gt;
+                  &lt;SelectTrigger className="mt-1.5 h-[38px] rounded-[5px]"&gt;&lt;SelectValue /&gt;&lt;/SelectTrigger&gt;
+                  &lt;SelectContent&gt;
+                    &lt;SelectItem value="ACTIVE"&gt;Active&lt;/SelectItem&gt;
+                    &lt;SelectItem value="INACTIVE"&gt;Inactive&lt;/SelectItem&gt;
+                  &lt;/SelectContent&gt;
+                &lt;/Select&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;DialogFooter&gt;
+              &lt;Button type="button" variant="outline" onClick={() =&gt; setDialogOpen(false)} disabled={submitting} className="rounded-[5px]"&gt;Cancel&lt;/Button&gt;
+              &lt;Button type="submit" disabled={submitting || !fName.trim()} className="rounded-[5px] bg-primary hover:bg-primary/90 text-primary-foreground"&gt;
+                {submitting ? &lt;&gt;&lt;Loader2 className="mr-2 h-4 w-4 animate-spin" /&gt; Saving...&lt;/&gt; : editing ? "Update" : "Create"}
+              &lt;/Button&gt;
+            &lt;/DialogFooter&gt;
+          &lt;/form&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* View Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode === "view"} onOpenChange={o =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent&gt;
+          &lt;DialogHeader&gt;&lt;DialogTitle className="text-lg font-bold"&gt;{editing?.name}&lt;/DialogTitle&gt;&lt;/DialogHeader&gt;
+          &lt;div className="space-y-3 py-4 text-sm"&gt;
+            {editing?.imageUrl &amp;&amp; &lt;div className="flex justify-center mb-3"&gt;&lt;img src={editing.imageUrl} alt="" className="h-16 w-16 rounded-lg object-cover" /&gt;&lt;/div&gt;}
+            &lt;div className="flex justify-between border-b pb-2"&gt;&lt;span className="text-muted-foreground"&gt;Slug&lt;/span&gt;&lt;span&gt;{editing?.slug}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className="flex justify-between border-b pb-2"&gt;&lt;span className="text-muted-foreground"&gt;Description&lt;/span&gt;&lt;span&gt;{editing?.description || "—"}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className="flex justify-between border-b pb-2"&gt;&lt;span className="text-muted-foreground"&gt;Status&lt;/span&gt;&lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[editing?.status || "ACTIVE"]}`}&gt;{editing?.status}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className="flex justify-between border-b pb-2"&gt;&lt;span className="text-muted-foreground"&gt;Created&lt;/span&gt;&lt;span&gt;{editing ? new Date(editing.createdAt).toLocaleString() : "—"}&lt;/span&gt;&lt;/div&gt;
+          &lt;/div&gt;
+          &lt;DialogFooter&gt;&lt;Button variant="outline" onClick={() =&gt; setDialogOpen(false)} className="rounded-[5px]"&gt;Close&lt;/Button&gt;&lt;/DialogFooter&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* Delete Confirmation */}
+      &lt;AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;&lt;AlertDialogTitle&gt;Delete Brand?&lt;/AlertDialogTitle&gt;&lt;AlertDialogDescription&gt;
+            You are about to delete "{deleting?.name}". Products using this brand will lose their brand association.
+          &lt;/AlertDialogDescription&gt;&lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={submitting} className="rounded-[5px]"&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleDelete} disabled={submitting} className="rounded-[5px] bg-destructive hover:bg-destructive/90"&gt;
+              {submitting ? &lt;&gt;&lt;Loader2 className="mr-2 h-4 w-4 animate-spin" /&gt; Deleting...&lt;/&gt; : "Delete"}
+            &lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+
+      {/* Bulk Delete */}
+      &lt;AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;&lt;AlertDialogTitle&gt;Delete Brands?&lt;/AlertDialogTitle&gt;
+          &lt;AlertDialogDescription&gt;{selectedIds.size} brands will be permanently deleted. Products will lose their brand association.&lt;/AlertDialogDescription&gt;&lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={submitting} className="rounded-[5px]"&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleBulkDelete} disabled={submitting} className="rounded-[5px] bg-destructive hover:bg-destructive/90"&gt;
+              {submitting ? &lt;&gt;&lt;Loader2 className="mr-2 h-4 w-4 animate-spin" /&gt; Deleting...&lt;/&gt; : `Delete ${selectedIds.size}`}
+            &lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+    &lt;/div&gt;
+  );
+}</pre>
+  </div>
+
+  <h3>3.2 Categories Page (397 lines)</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">app/[workspace]/(dashboard)/settings/categories/page.tsx — complete source</div>
+    <pre>"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Card, CardContent, CardHeader, CardTitle,
+} from "@/components/ui/card";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth-context";
+import { useProductCategoriesApi, ProductCategory } from "@/hooks/use-product-categories-api";
+import { Plus, Eye, Pencil, Trash2, Loader2, ArrowUpDown } from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+const statusColors: Record&lt;string, string&gt; = {
+  ACTIVE: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  INACTIVE: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+};
+
+export default function CategoriesPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const { getCategories, createCategory, updateCategory, deleteCategory, bulkDeleteCategories } = useProductCategoriesApi();
+
+  const [categories, setCategories] = useState&lt;ProductCategory[]&gt;([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState&lt;string | null&gt;(null);
+  const [sortDir, setSortDir] = useState&lt;"asc" | "desc"&gt;("desc");
+  const [selectedIds, setSelectedIds] = useState&lt;Set&lt;string&gt;&gt;(new Set());
+  const [dialogMode, setDialogMode] = useState&lt;"create" | "edit" | "view"&gt;("create");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [editing, setEditing] = useState&lt;ProductCategory | null&gt;(null);
+  const [deleting, setDeleting] = useState&lt;ProductCategory | null&gt;(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [formName, setFormName] = useState("");
+  const [formSlug, setFormSlug] = useState("");
+  const [formDesc, setFormDesc] = useState("");
+  const [formStatus, setFormStatus] = useState("ACTIVE");
+
+  const canManage = user?.role === "OWNER" || user?.role === "ADMIN" || user?.role === "MANAGER";
+
+  useEffect(() =&gt; { load(); }, []);
+
+  const load = async () =&gt; {
+    try { setError(null); setIsLoading(true); const data = await getCategories(); setCategories(data); }
+    catch (err: any) { setError(err?.message || "Failed to load categories."); }
+    finally { setIsLoading(false); }
+  };
+
+  const sorted = [...categories].sort((a, b) =&gt; {
+    const d = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    return sortDir === "asc" ? d : -d;
+  });
+
+  const toggleSort = () =&gt; setSortDir(d =&gt; d === "asc" ? "desc" : "asc");
+  const toggleSelect = (id: string) =&gt; { const next = new Set(selectedIds); next.has(id) ? next.delete(id) : next.add(id); setSelectedIds(next); };
+  const toggleAll = () =&gt; { if (selectedIds.size === sorted.length) setSelectedIds(new Set()); else setSelectedIds(new Set(sorted.map(c =&gt; c.id))); };
+
+  const openCreate = () =&gt; { setDialogMode("create"); setEditing(null); setFormName(""); setFormSlug(""); setFormDesc(""); setFormStatus("ACTIVE"); setDialogOpen(true); };
+  const openEdit = (c: ProductCategory) =&gt; { setDialogMode("edit"); setEditing(c); setFormName(c.name); setFormSlug(c.slug); setFormDesc(c.description || ""); setFormStatus(c.status); setDialogOpen(true); };
+  const openView = (c: ProductCategory) =&gt; { setDialogMode("view"); setEditing(c); setDialogOpen(true); };
+  const openDelete = (c: ProductCategory) =&gt; { setDeleting(c); setDeleteDialogOpen(true); };
+
+  const handleSave = async (e: React.FormEvent) =&gt; {
+    e.preventDefault();
+    if (!formName.trim()) return;
+    try {
+      setIsSubmitting(true);
+      if (editing) { await updateCategory(editing.id, { name: formName.trim(), slug: formSlug.trim() || undefined, description: formDesc.trim() || undefined, status: formStatus }); toast({ title: "Success", description: "Category updated" }); }
+      else { await createCategory({ name: formName.trim(), slug: formSlug.trim() || undefined, description: formDesc.trim() || undefined, status: formStatus }); toast({ title: "Success", description: "Category created" }); }
+      setDialogOpen(false); load();
+    } catch (err: any) { toast({ title: "Error", description: err.message || "Failed", variant: "destructive" }); }
+    finally { setIsSubmitting(false); }
+  };
+
+  const handleDelete = async () =&gt; {
+    if (!deleting) return;
+    try { setIsSubmitting(true); await deleteCategory(deleting.id); toast({ title: "Success", description: "Category deleted" }); setDeleteDialogOpen(false); setDeleting(null); load(); }
+    catch (err: any) { toast({ title: "Error", description: err.message || "Failed", variant: "destructive" }); }
+    finally { setIsSubmitting(false); }
+  };
+
+  const handleBulkDelete = async () =&gt; {
+    try { setIsSubmitting(true); const res = await bulkDeleteCategories(Array.from(selectedIds)); toast({ title: "Deleted", description: `${res.deleted.length} categories deleted` }); setSelectedIds(new Set()); setBulkDeleteOpen(false); load(); }
+    catch (err: any) { toast({ title: "Error", description: err.message || "Failed", variant: "destructive" }); }
+    finally { setIsSubmitting(false); }
+  };
+
+  return (
+    &lt;div className="space-y-6"&gt;
+      &lt;div className="flex items-center justify-between"&gt;
+        &lt;div&gt;&lt;h1 className="text-3xl font-bold tracking-tight"&gt;Category&lt;/h1&gt;&lt;p className="text-muted-foreground"&gt;Manage your product categories&lt;/p&gt;&lt;/div&gt;
+        {canManage &amp;&amp; &lt;Button onClick={openCreate}&gt;&lt;Plus className="mr-2 h-4 w-4" /&gt;Add Category&lt;/Button&gt;}
+      &lt;/div&gt;
+
+      &lt;Card&gt;
+        &lt;CardHeader className="pb-3"&gt;
+          &lt;div className="flex items-center justify-between"&gt;
+            &lt;CardTitle&gt;All Categories&lt;/CardTitle&gt;
+            {canManage &amp;&amp; selectedIds.size &gt; 0 &amp;&amp; &lt;Button variant="destructive" size="sm" onClick={() =&gt; setBulkDeleteOpen(true)}&gt;&lt;Trash2 className="mr-2 h-4 w-4" /&gt;Delete ({selectedIds.size})&lt;/Button&gt;}
+          &lt;/div&gt;
+        &lt;/CardHeader&gt;
+        &lt;CardContent className="p-0"&gt;
+          {isLoading ? (
+            &lt;div className="flex justify-center py-8"&gt;&lt;Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /&gt;&lt;/div&gt;
+          ) : error ? (
+            &lt;div className="flex items-center justify-center py-16 text-destructive"&gt;&lt;p&gt;{error}&lt;/p&gt;&lt;/div&gt;
+          ) : sorted.length === 0 ? (
+            &lt;div className="text-center py-8 text-muted-foreground"&gt;No categories found.&lt;/div&gt;
+          ) : (
+            &lt;Table&gt;
+              &lt;TableHeader&gt;
+                &lt;TableRow&gt;
+                  {canManage &amp;&amp; &lt;TableHead className="w-[60px]"&gt;&lt;Checkbox checked={selectedIds.size === sorted.length &amp;&amp; sorted.length &gt; 0} onCheckedChange={toggleAll} /&gt;&lt;/TableHead&gt;}
+                  &lt;TableHead className="w-[228px]"&gt;Category&lt;/TableHead&gt;
+                  &lt;TableHead className="w-[227px]"&gt;Category Slug&lt;/TableHead&gt;
+                  &lt;TableHead className="w-[222px] cursor-pointer select-none" onClick={toggleSort}"&gt;&lt;span className="inline-flex items-center gap-1"&gt;Created On&lt;ArrowUpDown className="h-3 w-3" /&gt;&lt;/span&gt;&lt;/TableHead&gt;
+                  &lt;TableHead className="w-[206px]"&gt;Status&lt;/TableHead&gt;
+                  {canManage &amp;&amp; &lt;TableHead className="w-[197px]"&gt;Actions&lt;/TableHead&gt;}
+                &lt;/TableRow&gt;
+              &lt;/TableHeader&gt;
+              &lt;TableBody&gt;
+                {sorted.map(cat =&gt; (
+                  &lt;TableRow key={cat.id}&gt;
+                    {canManage &amp;&amp; &lt;TableCell&gt;&lt;Checkbox checked={selectedIds.has(cat.id)} onCheckedChange={() =&gt; toggleSelect(cat.id)} disabled={cat.name === "Uncategorized"} /&gt;&lt;/TableCell&gt;}
+                    &lt;TableCell className="font-medium"&gt;{cat.name}&lt;/TableCell&gt;
+                    &lt;TableCell className="text-muted-foreground"&gt;{cat.slug}&lt;/TableCell&gt;
+                    &lt;TableCell&gt;{new Date(cat.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}&lt;/TableCell&gt;
+                    &lt;TableCell&gt;&lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[cat.status] || statusColors.ACTIVE}`}&gt;{cat.status}&lt;/span&gt;&lt;/TableCell&gt;
+                    {canManage &amp;&amp; (
+                      &lt;TableCell&gt;
+                        &lt;div className="flex items-center gap-1"&gt;
+                          &lt;Button variant="ghost" size="icon" className="h-8 w-8" onClick={() =&gt; openView(cat)}&gt;&lt;Eye className="h-4 w-4" /&gt;&lt;/Button&gt;
+                          &lt;Button variant="ghost" size="icon" className="h-8 w-8" onClick={() =&gt; openEdit(cat)}&gt;&lt;Pencil className="h-4 w-4" /&gt;&lt;/Button&gt;
+                          &lt;Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() =&gt; openDelete(cat)} disabled={cat.name === "Uncategorized"}&gt;&lt;Trash2 className="h-4 w-4" /&gt;&lt;/Button&gt;
+                        &lt;/div&gt;
+                      &lt;/TableCell&gt;
+                    )}
+                  &lt;/TableRow&gt;
+                ))}
+              &lt;/TableBody&gt;
+            &lt;/Table&gt;
+          )}
+        &lt;/CardContent&gt;
+      &lt;/Card&gt;
+
+      {/* Create / Edit Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode !== &quot;view&quot;} onOpenChange={(o) =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent&gt;
+          &lt;form onSubmit={handleSave}&gt;
+            &lt;DialogHeader&gt;
+              &lt;DialogTitle&gt;{editing ? &quot;Edit Category&quot; : &quot;Add Category&quot;}&lt;/DialogTitle&gt;
+            &lt;/DialogHeader&gt;
+            &lt;div className=&quot;space-y-4 py-4&quot;&gt;
+              &lt;div&gt;
+                &lt;Label htmlFor=&quot;cat-name&quot;&gt;Category Name&lt;/Label&gt;
+                &lt;Input id=&quot;cat-name&quot; value={formName} onChange={(e) =&gt; setFormName(e.target.value)} placeholder=&quot;Enter category name&quot; required maxLength={100} className=&quot;mt-1.5&quot; /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label htmlFor=&quot;cat-slug&quot;&gt;Slug&lt;/Label&gt;
+                &lt;Input id=&quot;cat-slug&quot; value={formSlug} onChange={(e) =&gt; setFormSlug(e.target.value)} placeholder=&quot;Auto-generated from name&quot; maxLength={100} className=&quot;mt-1.5&quot; /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label htmlFor=&quot;cat-desc&quot;&gt;Description (optional)&lt;/Label&gt;
+                &lt;Input id=&quot;cat-desc&quot; value={formDesc} onChange={(e) =&gt; setFormDesc(e.target.value)} placeholder=&quot;Enter description&quot; className=&quot;mt-1.5&quot; /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label htmlFor=&quot;cat-status&quot;&gt;Status&lt;/Label&gt;
+                &lt;Select value={formStatus} onValueChange={setFormStatus}&gt;
+                  &lt;SelectTrigger className=&quot;mt-1.5&quot; id=&quot;cat-status&quot;&gt;
+                    &lt;SelectValue /&gt;
+                  &lt;/SelectTrigger&gt;
+                  &lt;SelectContent&gt;
+                    &lt;SelectItem value=&quot;ACTIVE&quot;&gt;Active&lt;/SelectItem&gt;
+                    &lt;SelectItem value=&quot;INACTIVE&quot;&gt;Inactive&lt;/SelectItem&gt;
+                  &lt;/SelectContent&gt;
+                &lt;/Select&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;DialogFooter&gt;
+              &lt;Button type=&quot;button&quot; variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)} disabled={isSubmitting}&gt;Cancel&lt;/Button&gt;
+              &lt;Button type=&quot;submit&quot; disabled={isSubmitting || !formName.trim()}&gt;
+                {isSubmitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Saving...&lt;/&gt; : editing ? &quot;Update&quot; : &quot;Create&quot;}
+              &lt;/Button&gt;
+            &lt;/DialogFooter&gt;
+          &lt;/form&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* View Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode === &quot;view&quot;} onOpenChange={(o) =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent&gt;
+          &lt;DialogHeader&gt;
+            &lt;DialogTitle&gt;{editing?.name}&lt;/DialogTitle&gt;
+          &lt;/DialogHeader&gt;
+          &lt;div className=&quot;space-y-3 py-4 text-sm&quot;&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Slug&lt;/span&gt;&lt;span&gt;{editing?.slug}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Description&lt;/span&gt;&lt;span&gt;{editing?.description || &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Status&lt;/span&gt;&lt;span&gt;{editing?.status}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Created&lt;/span&gt;&lt;span&gt;{editing ? new Date(editing.createdAt).toLocaleString() : &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+          &lt;/div&gt;
+          &lt;DialogFooter&gt;
+            &lt;Button variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)}&gt;Close&lt;/Button&gt;
+          &lt;/DialogFooter&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* Single Delete */}
+      &lt;AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;
+            &lt;AlertDialogTitle&gt;Delete Category?&lt;/AlertDialogTitle&gt;
+            &lt;AlertDialogDescription&gt;
+              You are about to delete &amp;quot;{deleting?.name}&amp;quot;. Products using this category will be moved to &amp;quot;Uncategorized&amp;quot;.
+            &lt;/AlertDialogDescription&gt;
+          &lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={isSubmitting}&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleDelete} disabled={isSubmitting} className=&quot;bg-destructive hover:bg-destructive/90&quot;&gt;
+              {isSubmitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : &quot;Delete&quot;}
+            &lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+
+      {/* Bulk Delete */}
+      &lt;AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;
+            &lt;AlertDialogTitle&gt;Delete Categories?&lt;/AlertDialogTitle&gt;
+            &lt;AlertDialogDescription&gt;
+              {selectedIds.size} categories will be deleted. Products will be moved to &amp;quot;Uncategorized&amp;quot;.
+            &lt;/AlertDialogDescription&gt;
+          &lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={isSubmitting}&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleBulkDelete} disabled={isSubmitting} className=&quot;bg-destructive hover:bg-destructive/90&quot;&gt;
+              {isSubmitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : `Delete ${selectedIds.size}`}
+            &lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+    &lt;/div&gt;
+  );
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       Section 3.3: Sub Categories
+       ============================================================ -->
+  <h3>3.3 Sub Categories - SubCategoriesPage (page.tsx)</h3>
+  <div class="file-panel">
+    <pre>
+&quot;use client&quot;;
+
+import { useState, useEffect } from &quot;react&quot;;
+import { Button } from &quot;@/components/ui/button&quot;;
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from &quot;@/components/ui/card&quot;;
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from &quot;@/components/ui/table&quot;;
+import { Input } from &quot;@/components/ui/input&quot;;
+import { Label } from &quot;@/components/ui/label&quot;;
+import { Textarea } from &quot;@/components/ui/textarea&quot;;
+import { Checkbox } from &quot;@/components/ui/checkbox&quot;;
+import { useToast } from &quot;@/hooks/use-toast&quot;;
+import { useAuth } from &quot;@/contexts/auth-context&quot;;
+import {
+  useSubCategoriesApi,
+  SubCategory,
+} from &quot;@/hooks/use-sub-categories-api&quot;;
+import {
+  useProductCategoriesApi,
+  ProductCategory,
+} from &quot;@/hooks/use-product-categories-api&quot;;
+import { Plus, Eye, Pencil, Trash2, Loader2, ArrowUpDown } from &quot;lucide-react&quot;;
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from &quot;@/components/ui/select&quot;;
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from &quot;@/components/ui/dialog&quot;;
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from &quot;@/components/ui/alert-dialog&quot;;
+
+const statusColors: Record&lt;string, string&gt; = {
+  ACTIVE: &quot;bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400&quot;,
+  INACTIVE: &quot;bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400&quot;,
+};
+
+export default function SubCategoriesPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const { getSubCategories, createSubCategory, updateSubCategory, deleteSubCategory, bulkDeleteSubCategories } =
+    useSubCategoriesApi();
+  const { getCategories } = useProductCategoriesApi();
+
+  const [items, setItems] = useState&lt;SubCategory[]&gt;([]);
+  const [categories, setCategories] = useState&lt;ProductCategory[]&gt;([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState&lt;string | null&gt;(null);
+  const [sortDir, setSortDir] = useState&lt;&quot;asc&quot; | &quot;desc&quot;&gt;(&quot;desc&quot;);
+
+  const [selectedIds, setSelectedIds] = useState&lt;Set&lt;string&gt;&gt;(new Set());
+  const [dialogMode, setDialogMode] = useState&lt;&quot;create&quot; | &quot;edit&quot; | &quot;view&quot;&gt;(&quot;create&quot;);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [editing, setEditing] = useState&lt;SubCategory | null&gt;(null);
+  const [deleting, setDeleting] = useState&lt;SubCategory | null&gt;(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [filterCategoryId, setFilterCategoryId] = useState&lt;string&gt;(&quot;all&quot;);
+
+  const [formName, setFormName] = useState(&quot;&quot;);
+  const [formSlug, setFormSlug] = useState(&quot;&quot;);
+  const [formCategoryId, setFormCategoryId] = useState(&quot;&quot;);
+  const [formCode, setFormCode] = useState(&quot;&quot;);
+  const [formImageUrl, setFormImageUrl] = useState(&quot;&quot;);
+  const [formDesc, setFormDesc] = useState(&quot;&quot;);
+  const [formStatus, setFormStatus] = useState(&quot;ACTIVE&quot;);
+
+  const canManage =
+    user?.role === &quot;OWNER&quot; || user?.role === &quot;ADMIN&quot; || user?.role === &quot;MANAGER&quot;;
+
+  useEffect(() =&gt; { load(); }, []);
+
+  const load = async () =&gt; {
+    try {
+      setError(null);
+      setIsLoading(true);
+      const [subs, cats] = await Promise.all([
+        getSubCategories(filterCategoryId !== &quot;all&quot; ? filterCategoryId : undefined),
+        getCategories(),
+      ]);
+      setItems(subs);
+      setCategories(cats);
+    } catch (err: any) {
+      setError(err?.message || &quot;Failed to load sub categories.&quot;);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() =&gt; { load(); }, [filterCategoryId]);
+
+  const sorted = [...items].sort((a, b) =&gt; {
+    const d = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    return sortDir === &quot;asc&quot; ? d : -d;
+  });
+
+  const toggleSort = () =&gt; setSortDir((d) =&gt; (d === &quot;asc&quot; ? &quot;desc&quot; : &quot;asc&quot;));
+
+  const toggleSelect = (id: string) =&gt; {
+    const next = new Set(selectedIds);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setSelectedIds(next);
+  };
+
+  const toggleAll = () =&gt; {
+    if (selectedIds.size === sorted.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(sorted.map((c) =&gt; c.id)));
+    }
+  };
+
+  const openCreate = () =&gt; {
+    setDialogMode(&quot;create&quot;);
+    setEditing(null);
+    setFormName(&quot;&quot;);
+    setFormSlug(&quot;&quot;);
+    setFormCategoryId(&quot;&quot;);
+    setFormCode(&quot;&quot;);
+    setFormImageUrl(&quot;&quot;);
+    setFormDesc(&quot;&quot;);
+    setFormStatus(&quot;ACTIVE&quot;);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (c: SubCategory) =&gt; {
+    setDialogMode(&quot;edit&quot;);
+    setEditing(c);
+    setFormName(c.name);
+    setFormSlug(c.slug);
+    setFormCategoryId(c.categoryId);
+    setFormCode(c.code || &quot;&quot;);
+    setFormImageUrl(c.imageUrl || &quot;&quot;);
+    setFormDesc(c.description || &quot;&quot;);
+    setFormStatus(c.status);
+    setDialogOpen(true);
+  };
+
+  const openView = (c: SubCategory) =&gt; {
+    setDialogMode(&quot;view&quot;);
+    setEditing(c);
+    setDialogOpen(true);
+  };
+
+  const openDelete = (c: SubCategory) =&gt; {
+    setDeleting(c);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) =&gt; {
+    e.preventDefault();
+    if (!formName.trim() || !formCategoryId) return;
+    try {
+      setIsSubmitting(true);
+      if (editing) {
+        await updateSubCategory(editing.id, {
+          name: formName.trim(),
+          slug: formSlug.trim() || undefined,
+          categoryId: formCategoryId,
+          code: formCode.trim() || undefined,
+          imageUrl: formImageUrl.trim() || undefined,
+          description: formDesc.trim() || undefined,
+          status: formStatus,
+        });
+        toast({ title: &quot;Success&quot;, description: &quot;Sub category updated&quot; });
+      } else {
+        await createSubCategory({
+          name: formName.trim(),
+          slug: formSlug.trim() || undefined,
+          categoryId: formCategoryId,
+          code: formCode.trim() || undefined,
+          imageUrl: formImageUrl.trim() || undefined,
+          description: formDesc.trim() || undefined,
+          status: formStatus,
+        });
+        toast({ title: &quot;Success&quot;, description: &quot;Sub category created&quot; });
+      }
+      setDialogOpen(false);
+      load();
+    } catch (err: any) {
+      toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () =&gt; {
+    if (!deleting) return;
+    try {
+      setIsSubmitting(true);
+      await deleteSubCategory(deleting.id);
+      toast({ title: &quot;Success&quot;, description: &quot;Sub category deleted&quot; });
+      setDeleteDialogOpen(false);
+      setDeleting(null);
+      load();
+    } catch (err: any) {
+      toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBulkDelete = async () =&gt; {
+    try {
+      setIsSubmitting(true);
+      await bulkDeleteSubCategories(Array.from(selectedIds));
+      toast({ title: &quot;Deleted&quot;, description: `${selectedIds.size} sub categories deleted` });
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+      load();
+    } catch (err: any) {
+      toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    &lt;div className=&quot;space-y-6&quot;&gt;
+      &lt;div className=&quot;flex items-center justify-between&quot;&gt;
+        &lt;div&gt;
+          &lt;h1 className=&quot;text-3xl font-bold tracking-tight&quot;&gt;Sub Category&lt;/h1&gt;
+          &lt;p className=&quot;text-muted-foreground&quot;&gt;Manage your product sub categories&lt;/p&gt;
+        &lt;/div&gt;
+        {canManage &amp;&amp; (
+          &lt;Button onClick={openCreate}&gt;
+            &lt;Plus className=&quot;mr-2 h-4 w-4&quot; /&gt;
+            Add Sub Category
+          &lt;/Button&gt;
+        )}
+      &lt;/div&gt;
+
+      &lt;Card&gt;
+        &lt;CardHeader className=&quot;pb-3&quot;&gt;
+          &lt;div className=&quot;flex items-center justify-between&quot;&gt;
+            &lt;CardTitle&gt;All Sub Categories&lt;/CardTitle&gt;
+            &lt;div className=&quot;flex items-center gap-3&quot;&gt;
+              &lt;Select value={filterCategoryId} onValueChange={setFilterCategoryId}&gt;
+                &lt;SelectTrigger className=&quot;w-[200px]&quot;&gt;
+                  &lt;SelectValue placeholder=&quot;All Categories&quot; /&gt;
+                &lt;/SelectTrigger&gt;
+                &lt;SelectContent&gt;
+                  &lt;SelectItem value=&quot;all&quot;&gt;All Categories&lt;/SelectItem&gt;
+                  {categories.map((cat) =&gt; (
+                    &lt;SelectItem key={cat.id} value={cat.id}&gt;{cat.name}&lt;/SelectItem&gt;
+                  ))}
+                &lt;/SelectContent&gt;
+              &lt;/Select&gt;
+              {canManage &amp;&amp; selectedIds.size &gt; 0 &amp;&amp; (
+                &lt;Button variant=&quot;destructive&quot; size=&quot;sm&quot; onClick={() =&gt; setBulkDeleteOpen(true)}&gt;
+                  &lt;Trash2 className=&quot;mr-2 h-4 w-4&quot; /&gt;
+                  Delete ({selectedIds.size})
+                &lt;/Button&gt;
+              )}
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/CardHeader&gt;
+        &lt;CardContent className=&quot;p-0&quot;&gt;
+          {isLoading ? (
+            &lt;div className=&quot;flex justify-center py-8&quot;&gt;
+              &lt;Loader2 className=&quot;h-8 w-8 animate-spin text-muted-foreground&quot; /&gt;
+            &lt;/div&gt;
+          ) : error ? (
+            &lt;div className=&quot;flex items-center justify-center py-16 text-destructive&quot;&gt;&lt;p&gt;{error}&lt;/p&gt;&lt;/div&gt;
+          ) : sorted.length === 0 ? (
+            &lt;div className=&quot;text-center py-8 text-muted-foreground&quot;&gt;No sub categories found.&lt;/div&gt;
+          ) : (
+            &lt;Table&gt;
+              &lt;TableHeader&gt;
+                &lt;TableRow&gt;
+                  {canManage &amp;&amp; &lt;TableHead className=&quot;w-[60px]&quot;&gt;&lt;Checkbox checked={selectedIds.size === sorted.length &amp;&amp; sorted.length &gt; 0} onCheckedChange={toggleAll} /&gt;&lt;/TableHead&gt;}
+                  &lt;TableHead className=&quot;w-[71px]&quot;&gt;Image&lt;/TableHead&gt;
+                  &lt;TableHead className=&quot;w-[161px]&quot;&gt;Sub Category&lt;/TableHead&gt;
+                  &lt;TableHead className=&quot;w-[163px]&quot;&gt;Category&lt;/TableHead&gt;
+                  &lt;TableHead className=&quot;w-[154px] cursor-pointer select-none&quot; onClick={toggleSort}&gt;
+                    &lt;span className=&quot;inline-flex items-center gap-1&quot;&gt;
+                      Category Code
+                      &lt;ArrowUpDown className=&quot;h-3 w-3&quot; /&gt;
+                    &lt;/span&gt;
+                  &lt;/TableHead&gt;
+                  &lt;TableHead className=&quot;w-[209px]&quot;&gt;Description&lt;/TableHead&gt;
+                  &lt;TableHead className=&quot;w-[96px]&quot;&gt;Status&lt;/TableHead&gt;
+                  {canManage &amp;&amp; &lt;TableHead className=&quot;w-[226px]&quot;&gt;Actions&lt;/TableHead&gt;}
+                &lt;/TableRow&gt;
+              &lt;/TableHeader&gt;
+              &lt;TableBody&gt;
+                {sorted.map((item) =&gt; (
+                  &lt;TableRow key={item.id}&gt;
+                    {canManage &amp;&amp; (
+                      &lt;TableCell&gt;
+                        &lt;Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() =&gt; toggleSelect(item.id)} /&gt;
+                      &lt;/TableCell&gt;
+                    )}
+                    &lt;TableCell&gt;
+                      {item.imageUrl ? (
+                        &lt;img src={item.imageUrl} alt=&quot;&quot; className=&quot;h-8 w-8 rounded object-cover&quot; /&gt;
+                      ) : (
+                        &lt;div className=&quot;h-8 w-8 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground&quot;&gt;N/A&lt;/div&gt;
+                      )}
+                    &lt;/TableCell&gt;
+                    &lt;TableCell className=&quot;font-medium&quot;&gt;{item.name}&lt;/TableCell&gt;
+                    &lt;TableCell className=&quot;text-muted-foreground&quot;&gt;{item.category?.name || &quot;—&quot;}&lt;/TableCell&gt;
+                    &lt;TableCell className=&quot;font-mono text-xs&quot;&gt;{item.code || &quot;—&quot;}&lt;/TableCell&gt;
+                    &lt;TableCell className=&quot;text-muted-foreground max-w-[209px] truncate&quot;&gt;{item.description || &quot;—&quot;}&lt;/TableCell&gt;
+                    &lt;TableCell&gt;
+                      &lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[item.status] || statusColors.ACTIVE}`}&gt;
+                        {item.status}
+                      &lt;/span&gt;
+                    &lt;/TableCell&gt;
+                    {canManage &amp;&amp; (
+                      &lt;TableCell&gt;
+                        &lt;div className=&quot;flex items-center gap-1&quot;&gt;
+                          &lt;Button variant=&quot;ghost&quot; size=&quot;icon&quot; className=&quot;h-8 w-8&quot; onClick={() =&gt; openView(item)}&gt;
+                            &lt;Eye className=&quot;h-4 w-4&quot; /&gt;
+                          &lt;/Button&gt;
+                          &lt;Button variant=&quot;ghost&quot; size=&quot;icon&quot; className=&quot;h-8 w-8&quot; onClick={() =&gt; openEdit(item)}&gt;
+                            &lt;Pencil className=&quot;h-4 w-4&quot; /&gt;
+                          &lt;/Button&gt;
+                          &lt;Button variant=&quot;ghost&quot; size=&quot;icon&quot; className=&quot;h-8 w-8 text-destructive&quot; onClick={() =&gt; openDelete(item)}&gt;
+                            &lt;Trash2 className=&quot;h-4 w-4&quot; /&gt;
+                          &lt;/Button&gt;
+                        &lt;/div&gt;
+                      &lt;/TableCell&gt;
+                    )}
+                  &lt;/TableRow&gt;
+                ))}
+              &lt;/TableBody&gt;
+            &lt;/Table&gt;
+          )}
+        &lt;/CardContent&gt;
+      &lt;/Card&gt;
+
+      {/* Create / Edit Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode !== &quot;view&quot;} onOpenChange={(o) =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent className=&quot;sm:max-w-[500px]&quot;&gt;
+          &lt;form onSubmit={handleSave}&gt;
+            &lt;DialogHeader&gt;
+              &lt;DialogTitle&gt;{editing ? &quot;Edit Sub Category&quot; : &quot;Add Sub Category&quot;}&lt;/DialogTitle&gt;
+            &lt;/DialogHeader&gt;
+            &lt;div className=&quot;space-y-4 py-4&quot;&gt;
+              &lt;div className=&quot;grid grid-cols-2 gap-4&quot;&gt;
+                &lt;div&gt;
+                  &lt;Label htmlFor=&quot;sub-name&quot;&gt;Sub Category Name&lt;/Label&gt;
+                  &lt;Input id=&quot;sub-name&quot; value={formName} onChange={(e) =&gt; setFormName(e.target.value)} placeholder=&quot;Enter name&quot; required maxLength={100} className=&quot;mt-1.5&quot; /&gt;
+                &lt;/div&gt;
+                &lt;div&gt;
+                  &lt;Label htmlFor=&quot;sub-slug&quot;&gt;Slug&lt;/Label&gt;
+                  &lt;Input id=&quot;sub-slug&quot; value={formSlug} onChange={(e) =&gt; setFormSlug(e.target.value)} placeholder=&quot;Auto-generated&quot; maxLength={100} className=&quot;mt-1.5&quot; /&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label htmlFor=&quot;sub-category&quot;&gt;Category&lt;/Label&gt;
+                &lt;Select value={formCategoryId} onValueChange={setFormCategoryId}&gt;
+                  &lt;SelectTrigger className=&quot;mt-1.5&quot; id=&quot;sub-category&quot;&gt;
+                    &lt;SelectValue placeholder=&quot;Select category&quot; /&gt;
+                  &lt;/SelectTrigger&gt;
+                  &lt;SelectContent&gt;
+                    {categories.map((cat) =&gt; (
+                      &lt;SelectItem key={cat.id} value={cat.id}&gt;{cat.name}&lt;/SelectItem&gt;
+                    ))}
+                  &lt;/SelectContent&gt;
+                &lt;/Select&gt;
+              &lt;/div&gt;
+              &lt;div className=&quot;grid grid-cols-2 gap-4&quot;&gt;
+                &lt;div&gt;
+                  &lt;Label htmlFor=&quot;sub-code&quot;&gt;Code (optional)&lt;/Label&gt;
+                  &lt;Input id=&quot;sub-code&quot; value={formCode} onChange={(e) =&gt; setFormCode(e.target.value)} placeholder=&quot;SC001&quot; className=&quot;mt-1.5&quot; /&gt;
+                &lt;/div&gt;
+                &lt;div&gt;
+                  &lt;Label htmlFor=&quot;sub-image&quot;&gt;Image URL (optional)&lt;/Label&gt;
+                  &lt;Input id=&quot;sub-image&quot; value={formImageUrl} onChange={(e) =&gt; setFormImageUrl(e.target.value)} placeholder=&quot;https://...&quot; className=&quot;mt-1.5&quot; /&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label htmlFor=&quot;sub-desc&quot;&gt;Description (optional)&lt;/Label&gt;
+                &lt;Textarea id=&quot;sub-desc&quot; value={formDesc} onChange={(e) =&gt; setFormDesc(e.target.value)} placeholder=&quot;Enter description&quot; className=&quot;mt-1.5&quot; rows={3} /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label htmlFor=&quot;sub-status&quot;&gt;Status&lt;/Label&gt;
+                &lt;Select value={formStatus} onValueChange={setFormStatus}&gt;
+                  &lt;SelectTrigger className=&quot;mt-1.5&quot; id=&quot;sub-status&quot;&gt;
+                    &lt;SelectValue /&gt;
+                  &lt;/SelectTrigger&gt;
+                  &lt;SelectContent&gt;
+                    &lt;SelectItem value=&quot;ACTIVE&quot;&gt;Active&lt;/SelectItem&gt;
+                    &lt;SelectItem value=&quot;INACTIVE&quot;&gt;Inactive&lt;/SelectItem&gt;
+                  &lt;/SelectContent&gt;
+                &lt;/Select&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;DialogFooter&gt;
+              &lt;Button type=&quot;button&quot; variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)} disabled={isSubmitting}&gt;Cancel&lt;/Button&gt;
+              &lt;Button type=&quot;submit&quot; disabled={isSubmitting || !formName.trim() || !formCategoryId}&gt;
+                {isSubmitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Saving...&lt;/&gt; : editing ? &quot;Update&quot; : &quot;Create&quot;}
+              &lt;/Button&gt;
+            &lt;/DialogFooter&gt;
+          &lt;/form&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* View Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode === &quot;view&quot;} onOpenChange={(o) =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent&gt;
+          &lt;DialogHeader&gt;
+            &lt;DialogTitle&gt;{editing?.name}&lt;/DialogTitle&gt;
+          &lt;/DialogHeader&gt;
+          &lt;div className=&quot;space-y-3 py-4 text-sm&quot;&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Slug&lt;/span&gt;&lt;span&gt;{editing?.slug}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Category&lt;/span&gt;&lt;span&gt;{editing?.category?.name || &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Code&lt;/span&gt;&lt;span&gt;{editing?.code || &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Description&lt;/span&gt;&lt;span&gt;{editing?.description || &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Status&lt;/span&gt;&lt;span&gt;{editing?.status}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Created&lt;/span&gt;&lt;span&gt;{editing ? new Date(editing.createdAt).toLocaleString() : &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+          &lt;/div&gt;
+          &lt;DialogFooter&gt;
+            &lt;Button variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)}&gt;Close&lt;/Button&gt;
+          &lt;/DialogFooter&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* Single Delete */}
+      &lt;AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;
+            &lt;AlertDialogTitle&gt;Delete Sub Category?&lt;/AlertDialogTitle&gt;
+            &lt;AlertDialogDescription&gt;
+              You are about to delete &amp;quot;{deleting?.name}&amp;quot;. This action cannot be undone.
+            &lt;/AlertDialogDescription&gt;
+          &lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={isSubmitting}&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleDelete} disabled={isSubmitting} className=&quot;bg-destructive hover:bg-destructive/90&quot;&gt;
+              {isSubmitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : &quot;Delete&quot;}
+            &lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+
+      {/* Bulk Delete */}
+      &lt;AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;
+            &lt;AlertDialogTitle&gt;Delete Sub Categories?&lt;/AlertDialogTitle&gt;
+            &lt;AlertDialogDescription&gt;
+              {selectedIds.size} sub categories will be permanently deleted.
+            &lt;/AlertDialogDescription&gt;
+          &lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={isSubmitting}&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleBulkDelete} disabled={isSubmitting} className=&quot;bg-destructive hover:bg-destructive/90&quot;&gt;
+              {isSubmitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : `Delete ${selectedIds.size}`}
+            &lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+    &lt;/div&gt;
+  );
+}
+</pre>
+  </div>
+  <!-- ============================================================
+       Section 3.4: Units
+       ============================================================ -->
+  <h3>3.4 Units - UnitsPage (page.tsx)</h3>
+  <div class="file-panel">
+    <pre>
+&quot;use client&quot;;
+
+import { useState, useEffect, useMemo } from &quot;react&quot;;
+import { Button } from &quot;@/components/ui/button&quot;;
+import { Input } from &quot;@/components/ui/input&quot;;
+import { Label } from &quot;@/components/ui/label&quot;;
+import { Checkbox } from &quot;@/components/ui/checkbox&quot;;
+import { Badge } from &quot;@/components/ui/badge&quot;;
+import { useToast } from &quot;@/hooks/use-toast&quot;;
+import { useAuth } from &quot;@/contexts/auth-context&quot;;
+import { useUnitsApi, Unit } from &quot;@/hooks/use-units-api&quot;;
+import {
+  Plus, Eye, Pencil, Trash2, Loader2, ArrowUpDown,
+  Search, ChevronLeft, ChevronRight, ChevronDown,
+  RefreshCw, ChevronUp, FileText, FileSpreadsheet,
+  Package,
+} from &quot;lucide-react&quot;;
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from &quot;@/components/ui/select&quot;;
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from &quot;@/components/ui/dialog&quot;;
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from &quot;@/components/ui/alert-dialog&quot;;
+
+const statusColors: Record&lt;string, string&gt; = {
+  ACTIVE: &quot;bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400&quot;,
+  INACTIVE: &quot;bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400&quot;,
+};
+
+const ROWS_PER_PAGE = 10;
+
+export default function UnitsPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const api = useUnitsApi();
+
+  const [items, setItems] = useState&lt;Unit[]&gt;([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState&lt;string | null&gt;(null);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState(&quot;&quot;);
+  const [statusFilter, setStatusFilter] = useState(&quot;all&quot;);
+  const [sortColumn, setSortColumn] = useState&lt;string&gt;(&quot;createdAt&quot;);
+  const [sortDir, setSortDir] = useState&lt;&quot;asc&quot; | &quot;desc&quot;&gt;(&quot;desc&quot;);
+  const [selectedIds, setSelectedIds] = useState&lt;Set&lt;string&gt;&gt;(new Set());
+
+  const [dialogMode, setDialogMode] = useState&lt;&quot;create&quot; | &quot;edit&quot; | &quot;view&quot;&gt;(&quot;create&quot;);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [editing, setEditing] = useState&lt;Unit | null&gt;(null);
+  const [deleting, setDeleting] = useState&lt;Unit | null&gt;(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [fName, setFName] = useState(&quot;&quot;);
+  const [fShortName, setFShortName] = useState(&quot;&quot;);
+  const [fSlug, setFSlug] = useState(&quot;&quot;);
+  const [fDesc, setFDesc] = useState(&quot;&quot;);
+  const [fStatus, setFStatus] = useState(&quot;ACTIVE&quot;);
+
+  const canManage = user?.role === &quot;OWNER&quot; || user?.role === &quot;ADMIN&quot; || user?.role === &quot;MANAGER&quot;;
+
+  useEffect(() =&gt; { load(); }, []);
+
+  const load = async () =&gt; {
+    setError(null);
+    try { setIsLoading(true); setItems(await api.getUnits()); }
+    catch (err: any) { setError(err?.message || &quot;Failed to load units.&quot;); }
+    finally { setIsLoading(false); }
+  };
+
+  const filtered = useMemo(() =&gt; {
+    let result = [...items];
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(i =&gt;
+        i.name.toLowerCase().includes(q) ||
+        i.shortName.toLowerCase().includes(q)
+      );
+    }
+    if (statusFilter !== &quot;all&quot;) result = result.filter(i =&gt; i.status === statusFilter);
+    result.sort((a, b) =&gt; {
+      let cmp = 0;
+      if (sortColumn === &quot;shortName&quot;) cmp = a.shortName.localeCompare(b.shortName);
+      else if (sortColumn === &quot;products&quot;) cmp = (a._count?.products || 0) - (b._count?.products || 0);
+      else cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return sortDir === &quot;asc&quot; ? cmp : -cmp;
+    });
+    return result;
+  }, [items, search, statusFilter, sortColumn, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
+  const paged = filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+
+  useEffect(() =&gt; { if (page &gt; totalPages) setPage(totalPages); }, [page, totalPages]);
+
+  const toggleSort = (col: string) =&gt; {
+    if (sortColumn === col) setSortDir(d =&gt; d === &quot;asc&quot; ? &quot;desc&quot; : &quot;asc&quot;);
+    else { setSortColumn(col); setSortDir(&quot;asc&quot;); }
+  };
+
+  const toggleSelect = (id: string) =&gt; {
+    const n = new Set(selectedIds); n.has(id) ? n.delete(id) : n.add(id); setSelectedIds(n);
+  };
+  const toggleAll = () =&gt; {
+    if (selectedIds.size === paged.length &amp;&amp; paged.length &gt; 0)
+      setSelectedIds(new Set());
+    else setSelectedIds(new Set(paged.map(i =&gt; i.id)));
+  };
+
+  const openCreate = () =&gt; {
+    setDialogMode(&quot;create&quot;); setEditing(null);
+    setFName(&quot;&quot;); setFShortName(&quot;&quot;); setFSlug(&quot;&quot;); setFDesc(&quot;&quot;); setFStatus(&quot;ACTIVE&quot;);
+    setDialogOpen(true);
+  };
+  const openEdit = (c: Unit) =&gt; {
+    setDialogMode(&quot;edit&quot;); setEditing(c);
+    setFName(c.name); setFShortName(c.shortName); setFSlug(c.slug); setFDesc(c.description || &quot;&quot;); setFStatus(c.status);
+    setDialogOpen(true);
+  };
+  const openView = (c: Unit) =&gt; { setDialogMode(&quot;view&quot;); setEditing(c); setDialogOpen(true); };
+  const openDelete = (c: Unit) =&gt; { setDeleting(c); setDeleteOpen(true); };
+
+  const handleSave = async (e: React.FormEvent) =&gt; {
+    e.preventDefault();
+    if (!fName.trim() || !fShortName.trim()) return;
+    try {
+      setSubmitting(true);
+      const dto = { name: fName.trim(), shortName: fShortName.trim(), slug: fSlug.trim() || undefined, description: fDesc.trim() || undefined, status: fStatus };
+      if (editing) { await api.updateUnit(editing.id, dto); toast({ title: &quot;Success&quot;, description: &quot;Unit updated&quot; }); }
+      else { await api.createUnit(dto); toast({ title: &quot;Success&quot;, description: &quot;Unit created&quot; }); }
+      setDialogOpen(false); load();
+    } catch (err: any) { toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; }); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleDelete = async () =&gt; {
+    if (!deleting) return;
+    try { setSubmitting(true); await api.deleteUnit(deleting.id); toast({ title: &quot;Success&quot;, description: &quot;Unit deleted&quot; }); setDeleteOpen(false); setDeleting(null); load(); }
+    catch (err: any) { toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; }); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleBulkDelete = async () =&gt; {
+    try { setSubmitting(true); await api.bulkDeleteUnits(Array.from(selectedIds)); toast({ title: &quot;Deleted&quot;, description: `${selectedIds.size} units deleted` }); setSelectedIds(new Set()); setBulkDeleteOpen(false); load(); }
+    catch (err: any) { toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; }); }
+    finally { setSubmitting(false); }
+  };
+
+  return (
+    &lt;div className=&quot;space-y-5&quot;&gt;
+      {/* Page Header */}
+      &lt;div className=&quot;flex items-center justify-between&quot;&gt;
+        &lt;div&gt;
+          &lt;div className=&quot;flex items-center gap-1 text-sm text-muted-foreground mb-0.5&quot;&gt;
+            &lt;span&gt;Dashboard&lt;/span&gt;
+            &lt;ChevronRight className=&quot;h-3.5 w-3.5&quot; /&gt;
+            &lt;span className=&quot;text-foreground&quot;&gt;Units&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;h1 className=&quot;text-[18px] font-bold text-foreground&quot;&gt;Units&lt;/h1&gt;
+        &lt;/div&gt;
+        &lt;div className=&quot;flex items-center gap-2&quot;&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Export PDF&quot;&gt;&lt;FileText className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Export Excel&quot;&gt;&lt;FileSpreadsheet className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Refresh&quot; onClick={load}&gt;&lt;RefreshCw className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Collapse&quot;&gt;&lt;ChevronUp className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          {canManage &amp;&amp; (
+            &lt;Button className=&quot;h-[34px] rounded-[5px] bg-primary hover:bg-primary/90 text-primary-foreground text-[13px] font-medium px-3&quot; onClick={openCreate}&gt;
+              &lt;Plus className=&quot;mr-1.5 h-3.5 w-3.5&quot; /&gt;Add Unit
+            &lt;/Button&gt;
+          )}
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      {/* Table */}
+      &lt;div className=&quot;border rounded-[5px] bg-card shadow-sm overflow-hidden&quot;&gt;
+        {/* Table Toolbar */}
+        &lt;div className=&quot;flex items-center gap-4 px-5 py-[15px] border-b&quot;&gt;
+          &lt;div className=&quot;flex items-center gap-2 border rounded-[5px] px-2.5 py-1.5 w-[200px]&quot;&gt;
+            &lt;Search className=&quot;h-3.5 w-3.5 text-muted-foreground&quot; /&gt;
+            &lt;input
+              className=&quot;flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground&quot;
+              placeholder=&quot;Search&quot;
+              value={search}
+              onChange={e =&gt; { setSearch(e.target.value); setPage(1); }}
+            /&gt;
+          &lt;/div&gt;
+          &lt;div className=&quot;flex items-center gap-2 ml-auto&quot;&gt;
+            &lt;Select value={statusFilter} onValueChange={v =&gt; { setStatusFilter(v); setPage(1); }}&gt;
+              &lt;SelectTrigger className=&quot;h-[34px] w-[100px] text-sm rounded-[5px]&quot;&gt;
+                &lt;SelectValue placeholder=&quot;Status&quot; /&gt;
+              &lt;/SelectTrigger&gt;
+              &lt;SelectContent&gt;
+                &lt;SelectItem value=&quot;all&quot;&gt;All Status&lt;/SelectItem&gt;
+                &lt;SelectItem value=&quot;ACTIVE&quot;&gt;Active&lt;/SelectItem&gt;
+                &lt;SelectItem value=&quot;INACTIVE&quot;&gt;Inactive&lt;/SelectItem&gt;
+              &lt;/SelectContent&gt;
+            &lt;/Select&gt;
+            &lt;div className=&quot;flex items-center gap-1.5 text-sm text-foreground font-semibold&quot;&gt;
+              Sort By :
+              &lt;Select defaultValue=&quot;last7&quot;&gt;
+                &lt;SelectTrigger className=&quot;h-[34px] w-[130px] text-sm rounded-[5px]&quot;&gt;
+                  &lt;SelectValue /&gt;
+                &lt;/SelectTrigger&gt;
+                &lt;SelectContent&gt;
+                  &lt;SelectItem value=&quot;last7&quot;&gt;Last 7 Days&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;last30&quot;&gt;Last 30 Days&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;last90&quot;&gt;Last 90 Days&lt;/SelectItem&gt;
+                &lt;/SelectContent&gt;
+              &lt;/Select&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        {/* Table Content */}
+        {isLoading ? (
+          &lt;div className=&quot;flex justify-center py-12&quot;&gt;&lt;Loader2 className=&quot;h-8 w-8 animate-spin text-muted-foreground&quot; /&gt;&lt;/div&gt;
+        ) : error ? (
+          &lt;div className=&quot;flex items-center justify-center py-16 text-destructive&quot;&gt;&lt;p&gt;{error}&lt;/p&gt;&lt;/div&gt;
+        ) : paged.length === 0 ? (
+          &lt;div className=&quot;text-center py-12 text-muted-foreground&quot;&gt;No units found.&lt;/div&gt;
+        ) : (
+          &lt;div className=&quot;overflow-x-auto&quot;&gt;
+            &lt;table className=&quot;w-full text-sm&quot;&gt;
+              &lt;thead&gt;
+                &lt;tr className=&quot;bg-muted h-[33px]&quot;&gt;
+                  &lt;th className=&quot;w-[60px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;
+                    &lt;Checkbox checked={selectedIds.size === paged.length &amp;&amp; paged.length &gt; 0} onCheckedChange={toggleAll} /&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[203px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;Unit&lt;/th&gt;
+                  &lt;th className=&quot;w-[191px] px-5 py-2 text-left font-semibold text-foreground cursor-pointer select-none&quot; onClick={() =&gt; toggleSort(&quot;shortName&quot;)}&gt;
+                    &lt;span className=&quot;inline-flex items-center gap-1.5&quot;&gt;
+                      Short Name
+                      &lt;ArrowUpDown className=&quot;h-3 w-3&quot; /&gt;
+                    &lt;/span&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[192px] px-5 py-2 text-left font-semibold text-foreground cursor-pointer select-none&quot; onClick={() =&gt; toggleSort(&quot;products&quot;)}&gt;
+                    &lt;span className=&quot;inline-flex items-center gap-1.5&quot;&gt;
+                      No of Products
+                      &lt;ArrowUpDown className=&quot;h-3 w-3&quot; /&gt;
+                    &lt;/span&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[191px] px-5 py-2 text-left font-semibold text-foreground cursor-pointer select-none&quot; onClick={() =&gt; toggleSort(&quot;createdAt&quot;)}&gt;
+                    &lt;span className=&quot;inline-flex items-center gap-1.5&quot;&gt;
+                      Created Date
+                      &lt;ArrowUpDown className=&quot;h-3 w-3&quot; /&gt;
+                    &lt;/span&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[155px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;Status&lt;/th&gt;
+                  {canManage &amp;&amp; &lt;th className=&quot;w-[148px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;Actions&lt;/th&gt;}
+                &lt;/tr&gt;
+              &lt;/thead&gt;
+              &lt;tbody&gt;
+                {paged.map(item =&gt; (
+                  &lt;tr key={item.id} className=&quot;h-[56px] border-b&quot;&gt;
+                    &lt;td className=&quot;w-[60px] px-5&quot;&gt;
+                      &lt;Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() =&gt; toggleSelect(item.id)} /&gt;
+                    &lt;/td&gt;
+                    &lt;td className=&quot;w-[203px] px-5 text-foreground&quot;&gt;{item.name}&lt;/td&gt;
+                    &lt;td className=&quot;w-[191px] px-5&quot;&gt;
+                      &lt;code className=&quot;rounded bg-muted px-1.5 py-0.5 text-sm font-mono&quot;&gt;{item.shortName}&lt;/code&gt;
+                    &lt;/td&gt;
+                    &lt;td className=&quot;w-[192px] px-5 text-foreground&quot;&gt;
+                      &lt;span className=&quot;inline-flex items-center gap-1.5&quot;&gt;
+                        &lt;Package className=&quot;h-3.5 w-3.5 text-muted-foreground&quot; /&gt;
+                        {item._count?.products || 0}
+                      &lt;/span&gt;
+                    &lt;/td&gt;
+                    &lt;td className=&quot;w-[191px] px-5 text-foreground&quot;&gt;
+                      {new Date(item.createdAt).toLocaleDateString(&quot;en-US&quot;, { day: &quot;2-digit&quot;, month: &quot;short&quot;, year: &quot;numeric&quot; })}
+                    &lt;/td&gt;
+                    &lt;td className=&quot;w-[155px] px-5&quot;&gt;
+                      &lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[item.status] || statusColors.ACTIVE}`}&gt;
+                        {item.status}
+                      &lt;/span&gt;
+                    &lt;/td&gt;
+                    {canManage &amp;&amp; (
+                      &lt;td className=&quot;w-[148px] px-5&quot;&gt;
+                        &lt;div className=&quot;flex items-center gap-1&quot;&gt;
+                          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[30px] w-[30px] rounded-[5px]&quot; onClick={() =&gt; openView(item)}&gt;
+                            &lt;Eye className=&quot;h-3.5 w-3.5&quot; /&gt;
+                          &lt;/Button&gt;
+                          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[30px] w-[30px] rounded-[5px]&quot; onClick={() =&gt; openEdit(item)}&gt;
+                            &lt;Pencil className=&quot;h-3.5 w-3.5&quot; /&gt;
+                          &lt;/Button&gt;
+                          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[30px] w-[30px] rounded-[5px] text-destructive hover:text-destructive&quot; onClick={() =&gt; openDelete(item)}&gt;
+                            &lt;Trash2 className=&quot;h-3.5 w-3.5&quot; /&gt;
+                          &lt;/Button&gt;
+                        &lt;/div&gt;
+                      &lt;/td&gt;
+                    )}
+                  &lt;/tr&gt;
+                ))}
+              &lt;/tbody&gt;
+            &lt;/table&gt;
+          &lt;/div&gt;
+        )}
+
+        {/* Table Footer */}
+        {!isLoading &amp;&amp; paged.length &gt; 0 &amp;&amp; (
+          &lt;div className=&quot;flex items-center justify-between px-5 py-[15px] border-t&quot;&gt;
+            &lt;div className=&quot;flex items-center gap-2 text-sm text-muted-foreground&quot;&gt;
+              &lt;span&gt;Row Per Page&lt;/span&gt;
+              &lt;Select defaultValue=&quot;10&quot;&gt;
+                &lt;SelectTrigger className=&quot;h-8 w-16 text-xs rounded-[5px]&quot;&gt;
+                  &lt;SelectValue /&gt;
+                &lt;/SelectTrigger&gt;
+                &lt;SelectContent&gt;
+                  &lt;SelectItem value=&quot;10&quot;&gt;10&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;20&quot;&gt;20&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;50&quot;&gt;50&lt;/SelectItem&gt;
+                &lt;/SelectContent&gt;
+              &lt;/Select&gt;
+              &lt;span&gt;Entries&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div className=&quot;flex items-center gap-3&quot;&gt;
+              &lt;button
+                className=&quot;disabled:opacity-30&quot;
+                disabled={page &lt;= 1}
+                onClick={() =&gt; setPage(p =&gt; Math.max(1, p - 1))}
+              &gt;
+                &lt;ChevronLeft className=&quot;h-4 w-4 text-muted-foreground&quot; /&gt;
+              &lt;/button&gt;
+              &lt;div className=&quot;flex items-center gap-2&quot;&gt;
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) =&gt; {
+                  let pageNum: number;
+                  if (totalPages &lt;= 5) pageNum = i + 1;
+                  else if (page &lt;= 3) pageNum = i + 1;
+                  else if (page &gt;= totalPages - 2) pageNum = totalPages - 4 + i;
+                  else pageNum = page - 2 + i;
+                  return (
+                    &lt;button
+                      key={pageNum}
+                      className={`h-6 w-6 rounded-full text-xs flex items-center justify-center border ${pageNum === page ? &quot;bg-primary text-primary-foreground border-primary&quot; : &quot;text-muted-foreground&quot;}`}
+                      onClick={() =&gt; setPage(pageNum)}
+                    &gt;
+                      {pageNum}
+                    &lt;/button&gt;
+                  );
+                })}
+                {totalPages &gt; 5 &amp;&amp; page &lt; totalPages - 2 &amp;&amp; (
+                  &lt;span className=&quot;text-xs text-muted-foreground&quot;&gt;...&lt;/span&gt;
+                )}
+                {totalPages &gt; 5 &amp;&amp; page &lt; totalPages - 2 &amp;&amp; (
+                  &lt;button
+                    className=&quot;h-6 w-6 rounded-full text-xs flex items-center justify-center border text-muted-foreground&quot;
+                    onClick={() =&gt; setPage(totalPages)}
+                  &gt;
+                    {totalPages}
+                  &lt;/button&gt;
+                )}
+              &lt;/div&gt;
+              &lt;button
+                className=&quot;disabled:opacity-30&quot;
+                disabled={page &gt;= totalPages}
+                onClick={() =&gt; setPage(p =&gt; Math.min(totalPages, p + 1))}
+              &gt;
+                &lt;ChevronRight className=&quot;h-4 w-4 text-muted-foreground&quot; /&gt;
+              &lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        )}
+      &lt;/div&gt;
+
+      {/* Create/Edit Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode !== &quot;view&quot;} onOpenChange={o =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent className=&quot;sm:max-w-[480px]&quot;&gt;
+          &lt;form onSubmit={handleSave}&gt;
+            &lt;DialogHeader&gt;&lt;DialogTitle className=&quot;text-lg font-bold&quot;&gt;{editing ? &quot;Edit Unit&quot; : &quot;Add Unit&quot;}&lt;/DialogTitle&gt;&lt;/DialogHeader&gt;
+            &lt;div className=&quot;space-y-4 py-4&quot;&gt;
+              &lt;div className=&quot;grid grid-cols-2 gap-4&quot;&gt;
+                &lt;div&gt;
+                  &lt;Label className=&quot;text-sm font-medium&quot;&gt;Unit Name&lt;/Label&gt;
+                  &lt;Input value={fName} onChange={e =&gt; setFName(e.target.value)} placeholder=&quot;e.g. Kilograms&quot; required maxLength={100} className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+                &lt;/div&gt;
+                &lt;div&gt;
+                  &lt;Label className=&quot;text-sm font-medium&quot;&gt;Short Name&lt;/Label&gt;
+                  &lt;Input value={fShortName} onChange={e =&gt; setFShortName(e.target.value)} placeholder=&quot;e.g. kg&quot; required maxLength={20} className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className=&quot;text-sm font-medium&quot;&gt;Slug&lt;/Label&gt;
+                &lt;Input value={fSlug} onChange={e =&gt; setFSlug(e.target.value)} placeholder=&quot;Auto-generated&quot; maxLength={100} className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className=&quot;text-sm font-medium&quot;&gt;Description&lt;/Label&gt;
+                &lt;Input value={fDesc} onChange={e =&gt; setFDesc(e.target.value)} placeholder=&quot;Enter description&quot; className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className=&quot;text-sm font-medium&quot;&gt;Status&lt;/Label&gt;
+                &lt;Select value={fStatus} onValueChange={setFStatus}&gt;
+                  &lt;SelectTrigger className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot;&gt;&lt;SelectValue /&gt;&lt;/SelectTrigger&gt;
+                  &lt;SelectContent&gt;
+                    &lt;SelectItem value=&quot;ACTIVE&quot;&gt;Active&lt;/SelectItem&gt;
+                    &lt;SelectItem value=&quot;INACTIVE&quot;&gt;Inactive&lt;/SelectItem&gt;
+                  &lt;/SelectContent&gt;
+                &lt;/Select&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;DialogFooter&gt;
+              &lt;Button type=&quot;button&quot; variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)} disabled={submitting} className=&quot;rounded-[5px]&quot;&gt;Cancel&lt;/Button&gt;
+              &lt;Button type=&quot;submit&quot; disabled={submitting || !fName.trim() || !fShortName.trim()} className=&quot;rounded-[5px] bg-primary hover:bg-primary/90 text-primary-foreground&quot;&gt;
+                {submitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Saving...&lt;/&gt; : editing ? &quot;Update&quot; : &quot;Create&quot;}
+              &lt;/Button&gt;
+            &lt;/DialogFooter&gt;
+          &lt;/form&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* View Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode === &quot;view&quot;} onOpenChange={o =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent&gt;
+          &lt;DialogHeader&gt;&lt;DialogTitle className=&quot;text-lg font-bold&quot;&gt;{editing?.name}&lt;/DialogTitle&gt;&lt;/DialogHeader&gt;
+          &lt;div className=&quot;space-y-3 py-4 text-sm&quot;&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Short Name&lt;/span&gt;&lt;span&gt;{editing?.shortName}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Slug&lt;/span&gt;&lt;span&gt;{editing?.slug}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Description&lt;/span&gt;&lt;span&gt;{editing?.description || &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Products&lt;/span&gt;&lt;span&gt;{editing?._count?.products || 0}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Status&lt;/span&gt;&lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[editing?.status || &quot;ACTIVE&quot;]}`}&gt;{editing?.status}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Created&lt;/span&gt;&lt;span&gt;{editing ? new Date(editing.createdAt).toLocaleString() : &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+          &lt;/div&gt;
+          &lt;DialogFooter&gt;&lt;Button variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)} className=&quot;rounded-[5px]&quot;&gt;Close&lt;/Button&gt;&lt;/DialogFooter&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* Delete Confirmation */}
+      &lt;AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;&lt;AlertDialogTitle&gt;Delete Unit?&lt;/AlertDialogTitle&gt;&lt;AlertDialogDescription&gt;You are about to delete &amp;quot;{deleting?.name}&amp;quot;. Products using this unit will lose their unit association.&lt;/AlertDialogDescription&gt;&lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={submitting} className=&quot;rounded-[5px]&quot;&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleDelete} disabled={submitting} className=&quot;rounded-[5px] bg-destructive hover:bg-destructive/90&quot;&gt;{submitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : &quot;Delete&quot;}&lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+
+      {/* Bulk Delete */}
+      &lt;AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;&lt;AlertDialogTitle&gt;Delete Units?&lt;/AlertDialogTitle&gt;&lt;AlertDialogDescription&gt;{selectedIds.size} units will be permanently deleted. Products will lose their unit association.&lt;/AlertDialogDescription&gt;&lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={submitting} className=&quot;rounded-[5px]&quot;&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleBulkDelete} disabled={submitting} className=&quot;rounded-[5px] bg-destructive hover:bg-destructive/90&quot;&gt;{submitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : `Delete ${selectedIds.size}`}&lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+    &lt;/div&gt;
+  );
+}
+</pre>
+  </div>
+  <!-- ============================================================
+       Section 3.5: Warranties
+       ============================================================ -->
+  <h3>3.5 Warranties - WarrantiesPage (page.tsx)</h3>
+  <div class="file-panel">
+    <pre>
+&quot;use client&quot;;
+
+import { useState, useEffect, useMemo } from &quot;react&quot;;
+import { Button } from &quot;@/components/ui/button&quot;;
+import { Input } from &quot;@/components/ui/input&quot;;
+import { Label } from &quot;@/components/ui/label&quot;;
+import { Checkbox } from &quot;@/components/ui/checkbox&quot;;
+import { useToast } from &quot;@/hooks/use-toast&quot;;
+import { useAuth } from &quot;@/contexts/auth-context&quot;;
+import { useWarrantiesApi, Warranty } from &quot;@/hooks/use-warranties-api&quot;;
+import {
+  Plus, Eye, Pencil, Trash2, Loader2, ArrowUpDown,
+  Search, ChevronLeft, ChevronRight, ChevronDown,
+  RefreshCw, ChevronUp, FileText, FileSpreadsheet,
+} from &quot;lucide-react&quot;;
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from &quot;@/components/ui/select&quot;;
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from &quot;@/components/ui/dialog&quot;;
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from &quot;@/components/ui/alert-dialog&quot;;
+
+const statusColors: Record&lt;string, string&gt; = {
+  ACTIVE: &quot;bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400&quot;,
+  INACTIVE: &quot;bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400&quot;,
+};
+
+const durationTypeLabels: Record&lt;string, string&gt; = {
+  DAYS: &quot;Days&quot;,
+  MONTHS: &quot;Months&quot;,
+  YEARS: &quot;Years&quot;,
+};
+
+const ROWS_PER_PAGE = 10;
+
+export default function WarrantiesPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const api = useWarrantiesApi();
+
+  const [items, setItems] = useState&lt;Warranty[]&gt;([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState&lt;string | null&gt;(null);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState(&quot;&quot;);
+  const [statusFilter, setStatusFilter] = useState(&quot;all&quot;);
+  const [sortDir, setSortDir] = useState&lt;&quot;asc&quot; | &quot;desc&quot;&gt;(&quot;desc&quot;);
+  const [selectedIds, setSelectedIds] = useState&lt;Set&lt;string&gt;&gt;(new Set());
+
+  const [dialogMode, setDialogMode] = useState&lt;&quot;create&quot; | &quot;edit&quot; | &quot;view&quot;&gt;(&quot;create&quot;);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [editing, setEditing] = useState&lt;Warranty | null&gt;(null);
+  const [deleting, setDeleting] = useState&lt;Warranty | null&gt;(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [fName, setFName] = useState(&quot;&quot;);
+  const [fDuration, setFDuration] = useState(&quot;12&quot;);
+  const [fDurationType, setFDurationType] = useState(&quot;MONTHS&quot;);
+  const [fDesc, setFDesc] = useState(&quot;&quot;);
+  const [fStatus, setFStatus] = useState(&quot;ACTIVE&quot;);
+
+  const canManage = user?.role === &quot;OWNER&quot; || user?.role === &quot;ADMIN&quot; || user?.role === &quot;MANAGER&quot;;
+
+  useEffect(() =&gt; { load(); }, []);
+
+  const load = async () =&gt; {
+    setError(null);
+    try { setIsLoading(true); setItems(await api.getWarranties()); }
+    catch (err: any) { setError(err?.message || &quot;Failed to load warranties.&quot;); }
+    finally { setIsLoading(false); }
+  };
+
+  const filtered = useMemo(() =&gt; {
+    let result = [...items];
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(i =&gt; i.name.toLowerCase().includes(q) || (i.description || &quot;&quot;).toLowerCase().includes(q));
+    }
+    if (statusFilter !== &quot;all&quot;) result = result.filter(i =&gt; i.status === statusFilter);
+    result.sort((a, b) =&gt; {
+      const d = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return sortDir === &quot;asc&quot; ? d : -d;
+    });
+    return result;
+  }, [items, search, statusFilter, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
+  const paged = filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+
+  useEffect(() =&gt; { if (page &gt; totalPages) setPage(totalPages); }, [page, totalPages]);
+
+  const toggleSort = () =&gt; setSortDir(d =&gt; d === &quot;asc&quot; ? &quot;desc&quot; : &quot;asc&quot;);
+
+  const toggleSelect = (id: string) =&gt; {
+    const n = new Set(selectedIds); n.has(id) ? n.delete(id) : n.add(id); setSelectedIds(n);
+  };
+  const toggleAll = () =&gt; {
+    if (selectedIds.size === paged.length &amp;&amp; paged.length &gt; 0)
+      setSelectedIds(new Set());
+    else setSelectedIds(new Set(paged.map(i =&gt; i.id)));
+  };
+
+  const openCreate = () =&gt; {
+    setDialogMode(&quot;create&quot;); setEditing(null);
+    setFName(&quot;&quot;); setFDuration(&quot;12&quot;); setFDurationType(&quot;MONTHS&quot;); setFDesc(&quot;&quot;); setFStatus(&quot;ACTIVE&quot;);
+    setDialogOpen(true);
+  };
+  const openEdit = (c: Warranty) =&gt; {
+    setDialogMode(&quot;edit&quot;); setEditing(c);
+    setFName(c.name); setFDuration(String(c.duration)); setFDurationType(c.durationType); setFDesc(c.description || &quot;&quot;); setFStatus(c.status);
+    setDialogOpen(true);
+  };
+  const openView = (c: Warranty) =&gt; { setDialogMode(&quot;view&quot;); setEditing(c); setDialogOpen(true); };
+  const openDelete = (c: Warranty) =&gt; { setDeleting(c); setDeleteOpen(true); };
+
+  const handleSave = async (e: React.FormEvent) =&gt; {
+    e.preventDefault();
+    if (!fName.trim() || !fDuration) return;
+    try {
+      setSubmitting(true);
+      const dto = { name: fName.trim(), duration: parseInt(fDuration), durationType: fDurationType, description: fDesc.trim() || undefined, status: fStatus };
+      if (editing) { await api.updateWarranty(editing.id, dto); toast({ title: &quot;Success&quot;, description: &quot;Warranty updated&quot; }); }
+      else { await api.createWarranty(dto); toast({ title: &quot;Success&quot;, description: &quot;Warranty created&quot; }); }
+      setDialogOpen(false); load();
+    } catch (err: any) { toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; }); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleDelete = async () =&gt; {
+    if (!deleting) return;
+    try { setSubmitting(true); await api.deleteWarranty(deleting.id); toast({ title: &quot;Success&quot;, description: &quot;Warranty deleted&quot; }); setDeleteOpen(false); setDeleting(null); load(); }
+    catch (err: any) { toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; }); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleBulkDelete = async () =&gt; {
+    try { setSubmitting(true); await api.bulkDeleteWarranties(Array.from(selectedIds)); toast({ title: &quot;Deleted&quot;, description: `${selectedIds.size} warranties deleted` }); setSelectedIds(new Set()); setBulkDeleteOpen(false); load(); }
+    catch (err: any) { toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; }); }
+    finally { setSubmitting(false); }
+  };
+
+  const formatDuration = (w: Warranty) =&gt; {
+    const label = durationTypeLabels[w.durationType] || w.durationType;
+    return `${w.duration} ${label}`;
+  };
+
+  return (
+    &lt;div className=&quot;space-y-5&quot;&gt;
+      {/* Page Header */}
+      &lt;div className=&quot;flex items-center justify-between&quot;&gt;
+        &lt;div&gt;
+          &lt;div className=&quot;flex items-center gap-1 text-sm text-muted-foreground mb-0.5&quot;&gt;
+            &lt;span&gt;Dashboard&lt;/span&gt;
+            &lt;ChevronRight className=&quot;h-3.5 w-3.5&quot; /&gt;
+            &lt;span className=&quot;text-foreground&quot;&gt;Warranties&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;h1 className=&quot;text-[18px] font-bold text-foreground&quot;&gt;Warranties&lt;/h1&gt;
+        &lt;/div&gt;
+        &lt;div className=&quot;flex items-center gap-2&quot;&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Export PDF&quot;&gt;&lt;FileText className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Export Excel&quot;&gt;&lt;FileSpreadsheet className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Refresh&quot; onClick={load}&gt;&lt;RefreshCw className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Collapse&quot;&gt;&lt;ChevronUp className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          {canManage &amp;&amp; (
+            &lt;Button className=&quot;h-[34px] rounded-[5px] bg-primary hover:bg-primary/90 text-primary-foreground text-[13px] font-medium px-3&quot; onClick={openCreate}&gt;
+              &lt;Plus className=&quot;mr-1.5 h-3.5 w-3.5&quot; /&gt;Add Warranty
+            &lt;/Button&gt;
+          )}
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      {/* Table */}
+      &lt;div className=&quot;border rounded-[5px] bg-card shadow-sm overflow-hidden&quot;&gt;
+        {/* Table Toolbar */}
+        &lt;div className=&quot;flex items-center gap-4 px-5 py-[15px] border-b&quot;&gt;
+          &lt;div className=&quot;flex items-center gap-2 border rounded-[5px] px-2.5 py-1.5 w-[200px]&quot;&gt;
+            &lt;Search className=&quot;h-3.5 w-3.5 text-muted-foreground&quot; /&gt;
+            &lt;input
+              className=&quot;flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground&quot;
+              placeholder=&quot;Search&quot;
+              value={search}
+              onChange={e =&gt; { setSearch(e.target.value); setPage(1); }}
+            /&gt;
+          &lt;/div&gt;
+          &lt;div className=&quot;flex items-center gap-2 ml-auto&quot;&gt;
+            &lt;Select value={statusFilter} onValueChange={v =&gt; { setStatusFilter(v); setPage(1); }}&gt;
+              &lt;SelectTrigger className=&quot;h-[34px] w-[100px] text-sm rounded-[5px]&quot;&gt;
+                &lt;SelectValue placeholder=&quot;Status&quot; /&gt;
+              &lt;/SelectTrigger&gt;
+              &lt;SelectContent&gt;
+                &lt;SelectItem value=&quot;all&quot;&gt;All Status&lt;/SelectItem&gt;
+                &lt;SelectItem value=&quot;ACTIVE&quot;&gt;Active&lt;/SelectItem&gt;
+                &lt;SelectItem value=&quot;INACTIVE&quot;&gt;Inactive&lt;/SelectItem&gt;
+              &lt;/SelectContent&gt;
+            &lt;/Select&gt;
+            &lt;div className=&quot;flex items-center gap-1.5 text-sm text-foreground font-semibold&quot;&gt;
+              Sort By :
+              &lt;Select defaultValue=&quot;last7&quot;&gt;
+                &lt;SelectTrigger className=&quot;h-[34px] w-[130px] text-sm rounded-[5px]&quot;&gt;
+                  &lt;SelectValue /&gt;
+                &lt;/SelectTrigger&gt;
+                &lt;SelectContent&gt;
+                  &lt;SelectItem value=&quot;last7&quot;&gt;Last 7 Days&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;last30&quot;&gt;Last 30 Days&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;last90&quot;&gt;Last 90 Days&lt;/SelectItem&gt;
+                &lt;/SelectContent&gt;
+              &lt;/Select&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        {/* Table Content */}
+        {isLoading ? (
+          &lt;div className=&quot;flex justify-center py-12&quot;&gt;&lt;Loader2 className=&quot;h-8 w-8 animate-spin text-muted-foreground&quot; /&gt;&lt;/div&gt;
+        ) : error ? (
+          &lt;div className=&quot;flex items-center justify-center py-16 text-destructive&quot;&gt;&lt;p&gt;{error}&lt;/p&gt;&lt;/div&gt;
+        ) : paged.length === 0 ? (
+          &lt;div className=&quot;text-center py-12 text-muted-foreground&quot;&gt;No warranties found.&lt;/div&gt;
+        ) : (
+          &lt;div className=&quot;overflow-x-auto&quot;&gt;
+            &lt;table className=&quot;w-full text-sm&quot;&gt;
+              &lt;thead&gt;
+                &lt;tr className=&quot;bg-muted h-[33px]&quot;&gt;
+                  &lt;th className=&quot;w-[60px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;
+                    &lt;Checkbox checked={selectedIds.size === paged.length &amp;&amp; paged.length &gt; 0} onCheckedChange={toggleAll} /&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[232px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;Warranty&lt;/th&gt;
+                  &lt;th className=&quot;w-[366px] px-5 py-2 text-left font-semibold text-foreground cursor-pointer select-none&quot; onClick={toggleSort}&gt;
+                    &lt;span className=&quot;inline-flex items-center gap-1.5&quot;&gt;
+                      Description
+                      &lt;ArrowUpDown className=&quot;h-3 w-3&quot; /&gt;
+                    &lt;/span&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[186px] px-5 py-2 text-left font-semibold text-foreground cursor-pointer select-none&quot; onClick={toggleSort}&gt;
+                    &lt;span className=&quot;inline-flex items-center gap-1.5&quot;&gt;
+                      Duration
+                      &lt;ArrowUpDown className=&quot;h-3 w-3&quot; /&gt;
+                    &lt;/span&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[147px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;Status&lt;/th&gt;
+                  {canManage &amp;&amp; &lt;th className=&quot;w-[149px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;Actions&lt;/th&gt;}
+                &lt;/tr&gt;
+              &lt;/thead&gt;
+              &lt;tbody&gt;
+                {paged.map(item =&gt; (
+                  &lt;tr key={item.id} className=&quot;h-[56px] border-b&quot;&gt;
+                    &lt;td className=&quot;w-[60px] px-5&quot;&gt;
+                      &lt;Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() =&gt; toggleSelect(item.id)} /&gt;
+                    &lt;/td&gt;
+                    &lt;td className=&quot;w-[232px] px-5 text-foreground font-medium&quot;&gt;{item.name}&lt;/td&gt;
+                    &lt;td className=&quot;w-[366px] px-5 text-foreground truncate max-w-[366px]&quot;&gt;{item.description || &quot;—&quot;}&lt;/td&gt;
+                    &lt;td className=&quot;w-[186px] px-5 text-foreground&quot;&gt;{formatDuration(item)}&lt;/td&gt;
+                    &lt;td className=&quot;w-[147px] px-5&quot;&gt;
+                      &lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[item.status] || statusColors.ACTIVE}`}&gt;
+                        {item.status}
+                      &lt;/span&gt;
+                    &lt;/td&gt;
+                    {canManage &amp;&amp; (
+                      &lt;td className=&quot;w-[149px] px-5&quot;&gt;
+                        &lt;div className=&quot;flex items-center gap-1&quot;&gt;
+                          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[30px] w-[30px] rounded-[5px]&quot; onClick={() =&gt; openView(item)}&gt;
+                            &lt;Eye className=&quot;h-3.5 w-3.5&quot; /&gt;
+                          &lt;/Button&gt;
+                          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[30px] w-[30px] rounded-[5px]&quot; onClick={() =&gt; openEdit(item)}&gt;
+                            &lt;Pencil className=&quot;h-3.5 w-3.5&quot; /&gt;
+                          &lt;/Button&gt;
+                          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[30px] w-[30px] rounded-[5px] text-destructive hover:text-destructive&quot; onClick={() =&gt; openDelete(item)}&gt;
+                            &lt;Trash2 className=&quot;h-3.5 w-3.5&quot; /&gt;
+                          &lt;/Button&gt;
+                        &lt;/div&gt;
+                      &lt;/td&gt;
+                    )}
+                  &lt;/tr&gt;
+                ))}
+              &lt;/tbody&gt;
+            &lt;/table&gt;
+          &lt;/div&gt;
+        )}
+
+        {/* Table Footer */}
+        {!isLoading &amp;&amp; paged.length &gt; 0 &amp;&amp; (
+          &lt;div className=&quot;flex items-center justify-between px-5 py-[15px] border-t&quot;&gt;
+            &lt;div className=&quot;flex items-center gap-2 text-sm text-muted-foreground&quot;&gt;
+              &lt;span&gt;Row Per Page&lt;/span&gt;
+              &lt;Select defaultValue=&quot;10&quot;&gt;
+                &lt;SelectTrigger className=&quot;h-8 w-16 text-xs rounded-[5px]&quot;&gt;
+                  &lt;SelectValue /&gt;
+                &lt;/SelectTrigger&gt;
+                &lt;SelectContent&gt;
+                  &lt;SelectItem value=&quot;10&quot;&gt;10&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;20&quot;&gt;20&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;50&quot;&gt;50&lt;/SelectItem&gt;
+                &lt;/SelectContent&gt;
+              &lt;/Select&gt;
+              &lt;span&gt;Entries&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div className=&quot;flex items-center gap-3&quot;&gt;
+              &lt;button className=&quot;disabled:opacity-30&quot; disabled={page &lt;= 1} onClick={() =&gt; setPage(p =&gt; Math.max(1, p - 1))}&gt;
+                &lt;ChevronLeft className=&quot;h-4 w-4 text-muted-foreground&quot; /&gt;
+              &lt;/button&gt;
+              &lt;div className=&quot;flex items-center gap-2&quot;&gt;
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) =&gt; {
+                  let pageNum: number;
+                  if (totalPages &lt;= 5) pageNum = i + 1;
+                  else if (page &lt;= 3) pageNum = i + 1;
+                  else if (page &gt;= totalPages - 2) pageNum = totalPages - 4 + i;
+                  else pageNum = page - 2 + i;
+                  return (
+                    &lt;button key={pageNum}
+                      className={`h-6 w-6 rounded-full text-xs flex items-center justify-center border ${pageNum === page ? &quot;bg-primary text-primary-foreground border-primary&quot; : &quot;text-muted-foreground&quot;}`}
+                      onClick={() =&gt; setPage(pageNum)}&gt;
+                      {pageNum}
+                    &lt;/button&gt;
+                  );
+                })}
+                {totalPages &gt; 5 &amp;&amp; page &lt; totalPages - 2 &amp;&amp; (
+                  &lt;span className=&quot;text-xs text-muted-foreground&quot;&gt;...&lt;/span&gt;
+                )}
+                {totalPages &gt; 5 &amp;&amp; page &lt; totalPages - 2 &amp;&amp; (
+                  &lt;button className=&quot;h-6 w-6 rounded-full text-xs flex items-center justify-center border text-muted-foreground&quot;
+                    onClick={() =&gt; setPage(totalPages)}&gt;
+                    {totalPages}
+                  &lt;/button&gt;
+                )}
+              &lt;/div&gt;
+              &lt;button className=&quot;disabled:opacity-30&quot; disabled={page &gt;= totalPages} onClick={() =&gt; setPage(p =&gt; Math.min(totalPages, p + 1))}&gt;
+                &lt;ChevronRight className=&quot;h-4 w-4 text-muted-foreground&quot; /&gt;
+              &lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        )}
+      &lt;/div&gt;
+
+      {/* Create/Edit Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode !== &quot;view&quot;} onOpenChange={o =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent className=&quot;sm:max-w-[480px]&quot;&gt;
+          &lt;form onSubmit={handleSave}&gt;
+            &lt;DialogHeader&gt;&lt;DialogTitle className=&quot;text-lg font-bold&quot;&gt;{editing ? &quot;Edit Warranty&quot; : &quot;Add Warranty&quot;}&lt;/DialogTitle&gt;&lt;/DialogHeader&gt;
+            &lt;div className=&quot;space-y-4 py-4&quot;&gt;
+              &lt;div&gt;
+                &lt;Label className=&quot;text-sm font-medium&quot;&gt;Warranty Name&lt;/Label&gt;
+                &lt;Input value={fName} onChange={e =&gt; setFName(e.target.value)} placeholder=&quot;e.g. Standard Warranty&quot; required maxLength={100} className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+              &lt;/div&gt;
+              &lt;div className=&quot;grid grid-cols-2 gap-4&quot;&gt;
+                &lt;div&gt;
+                  &lt;Label className=&quot;text-sm font-medium&quot;&gt;Duration&lt;/Label&gt;
+                  &lt;Input type=&quot;number&quot; min={1} value={fDuration} onChange={e =&gt; setFDuration(e.target.value)} placeholder=&quot;12&quot; required className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+                &lt;/div&gt;
+                &lt;div&gt;
+                  &lt;Label className=&quot;text-sm font-medium&quot;&gt;Period&lt;/Label&gt;
+                  &lt;Select value={fDurationType} onValueChange={setFDurationType}&gt;
+                    &lt;SelectTrigger className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot;&gt;&lt;SelectValue /&gt;&lt;/SelectTrigger&gt;
+                    &lt;SelectContent&gt;
+                      &lt;SelectItem value=&quot;DAYS&quot;&gt;Days&lt;/SelectItem&gt;
+                      &lt;SelectItem value=&quot;MONTHS&quot;&gt;Months&lt;/SelectItem&gt;
+                      &lt;SelectItem value=&quot;YEARS&quot;&gt;Years&lt;/SelectItem&gt;
+                    &lt;/SelectContent&gt;
+                  &lt;/Select&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className=&quot;text-sm font-medium&quot;&gt;Description&lt;/Label&gt;
+                &lt;Input value={fDesc} onChange={e =&gt; setFDesc(e.target.value)} placeholder=&quot;Enter description&quot; className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className=&quot;text-sm font-medium&quot;&gt;Status&lt;/Label&gt;
+                &lt;Select value={fStatus} onValueChange={setFStatus}&gt;
+                  &lt;SelectTrigger className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot;&gt;&lt;SelectValue /&gt;&lt;/SelectTrigger&gt;
+                  &lt;SelectContent&gt;
+                    &lt;SelectItem value=&quot;ACTIVE&quot;&gt;Active&lt;/SelectItem&gt;
+                    &lt;SelectItem value=&quot;INACTIVE&quot;&gt;Inactive&lt;/SelectItem&gt;
+                  &lt;/SelectContent&gt;
+                &lt;/Select&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;DialogFooter&gt;
+              &lt;Button type=&quot;button&quot; variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)} disabled={submitting} className=&quot;rounded-[5px]&quot;&gt;Cancel&lt;/Button&gt;
+              &lt;Button type=&quot;submit&quot; disabled={submitting || !fName.trim() || !fDuration} className=&quot;rounded-[5px] bg-primary hover:bg-primary/90 text-primary-foreground&quot;&gt;
+                {submitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Saving...&lt;/&gt; : editing ? &quot;Update&quot; : &quot;Create&quot;}
+              &lt;/Button&gt;
+            &lt;/DialogFooter&gt;
+          &lt;/form&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* View Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode === &quot;view&quot;} onOpenChange={o =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent&gt;
+          &lt;DialogHeader&gt;&lt;DialogTitle className=&quot;text-lg font-bold&quot;&gt;{editing?.name}&lt;/DialogTitle&gt;&lt;/DialogHeader&gt;
+          &lt;div className=&quot;space-y-3 py-4 text-sm&quot;&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Duration&lt;/span&gt;&lt;span&gt;{editing ? formatDuration(editing) : &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Description&lt;/span&gt;&lt;span&gt;{editing?.description || &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Status&lt;/span&gt;&lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[editing?.status || &quot;ACTIVE&quot;]}`}&gt;{editing?.status}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Created&lt;/span&gt;&lt;span&gt;{editing ? new Date(editing.createdAt).toLocaleString() : &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+          &lt;/div&gt;
+          &lt;DialogFooter&gt;&lt;Button variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)} className=&quot;rounded-[5px]&quot;&gt;Close&lt;/Button&gt;&lt;/DialogFooter&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* Delete Confirmation */}
+      &lt;AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;&lt;AlertDialogTitle&gt;Delete Warranty?&lt;/AlertDialogTitle&gt;&lt;AlertDialogDescription&gt;You are about to delete &amp;quot;{deleting?.name}&amp;quot;. Products using this warranty will lose their warranty association.&lt;/AlertDialogDescription&gt;&lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={submitting} className=&quot;rounded-[5px]&quot;&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleDelete} disabled={submitting} className=&quot;rounded-[5px] bg-destructive hover:bg-destructive/90&quot;&gt;{submitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : &quot;Delete&quot;}&lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+
+      {/* Bulk Delete */}
+      &lt;AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;&lt;AlertDialogTitle&gt;Delete Warranties?&lt;/AlertDialogTitle&gt;&lt;AlertDialogDescription&gt;{selectedIds.size} warranties will be permanently deleted. Products will lose their warranty association.&lt;/AlertDialogDescription&gt;&lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={submitting} className=&quot;rounded-[5px]&quot;&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleBulkDelete} disabled={submitting} className=&quot;rounded-[5px] bg-destructive hover:bg-destructive/90&quot;&gt;{submitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : `Delete ${selectedIds.size}`}&lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+    &lt;/div&gt;
+  );
+}
+</pre>
+  </div>
+  <!-- ============================================================
+       Section 3.6: Variant Attributes
+       ============================================================ -->
+  <h3>3.6 Variant Attributes - VariantAttributesPage (page.tsx)</h3>
+  <div class="file-panel">
+    <pre>
+&quot;use client&quot;;
+
+import { useState, useEffect, useMemo } from &quot;react&quot;;
+import { Button } from &quot;@/components/ui/button&quot;;
+import { Input } from &quot;@/components/ui/input&quot;;
+import { Label } from &quot;@/components/ui/label&quot;;
+import { Textarea } from &quot;@/components/ui/textarea&quot;;
+import { Checkbox } from &quot;@/components/ui/checkbox&quot;;
+import { Badge } from &quot;@/components/ui/badge&quot;;
+import { useToast } from &quot;@/hooks/use-toast&quot;;
+import { useAuth } from &quot;@/contexts/auth-context&quot;;
+import { useVariantAttributesApi, VariantAttribute } from &quot;@/hooks/use-variant-attributes-api&quot;;
+import {
+  Plus, Eye, Pencil, Trash2, Loader2, ArrowUpDown, X,
+  Search, ChevronLeft, ChevronRight, ChevronDown,
+  RefreshCw, ChevronUp, FileText, FileSpreadsheet,
+} from &quot;lucide-react&quot;;
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from &quot;@/components/ui/select&quot;;
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from &quot;@/components/ui/dialog&quot;;
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from &quot;@/components/ui/alert-dialog&quot;;
+
+const statusColors: Record&lt;string, string&gt; = {
+  ACTIVE: &quot;bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400&quot;,
+  INACTIVE: &quot;bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400&quot;,
+};
+
+const ROWS_PER_PAGE = 10;
+
+export default function VariantAttributesPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const api = useVariantAttributesApi();
+
+  const [items, setItems] = useState&lt;VariantAttribute[]&gt;([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState&lt;string | null&gt;(null);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState(&quot;&quot;);
+  const [statusFilter, setStatusFilter] = useState(&quot;all&quot;);
+  const [sortDir, setSortDir] = useState&lt;&quot;asc&quot; | &quot;desc&quot;&gt;(&quot;desc&quot;);
+  const [selectedIds, setSelectedIds] = useState&lt;Set&lt;string&gt;&gt;(new Set());
+
+  const [dialogMode, setDialogMode] = useState&lt;&quot;create&quot; | &quot;edit&quot; | &quot;view&quot;&gt;(&quot;create&quot;);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [editing, setEditing] = useState&lt;VariantAttribute | null&gt;(null);
+  const [deleting, setDeleting] = useState&lt;VariantAttribute | null&gt;(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [fName, setFName] = useState(&quot;&quot;);
+  const [fSlug, setFSlug] = useState(&quot;&quot;);
+  const [fValues, setFValues] = useState&lt;string[]&gt;([]);
+  const [fValueInput, setFValueInput] = useState(&quot;&quot;);
+  const [fDesc, setFDesc] = useState(&quot;&quot;);
+  const [fStatus, setFStatus] = useState(&quot;ACTIVE&quot;);
+
+  const canManage = user?.role === &quot;OWNER&quot; || user?.role === &quot;ADMIN&quot; || user?.role === &quot;MANAGER&quot;;
+
+  useEffect(() =&gt; { load(); }, []);
+
+  const load = async () =&gt; {
+    setError(null);
+    try { setIsLoading(true); setItems(await api.getVariantAttributes()); }
+    catch (err: any) { setError(err?.message || &quot;Failed to load variant attributes.&quot;); }
+    finally { setIsLoading(false); }
+  };
+
+  const filtered = useMemo(() =&gt; {
+    let result = [...items];
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(i =&gt; i.name.toLowerCase().includes(q));
+    }
+    if (statusFilter !== &quot;all&quot;) result = result.filter(i =&gt; i.status === statusFilter);
+    result.sort((a, b) =&gt; {
+      const d = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return sortDir === &quot;asc&quot; ? d : -d;
+    });
+    return result;
+  }, [items, search, statusFilter, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
+  const paged = filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+
+  useEffect(() =&gt; { if (page &gt; totalPages) setPage(totalPages); }, [page, totalPages]);
+
+  const toggleSort = () =&gt; setSortDir(d =&gt; d === &quot;asc&quot; ? &quot;desc&quot; : &quot;asc&quot;);
+
+  const toggleSelect = (id: string) =&gt; {
+    const n = new Set(selectedIds); n.has(id) ? n.delete(id) : n.add(id); setSelectedIds(n);
+  };
+  const toggleAll = () =&gt; {
+    if (selectedIds.size === paged.length &amp;&amp; paged.length &gt; 0)
+      setSelectedIds(new Set());
+    else setSelectedIds(new Set(paged.map(i =&gt; i.id)));
+  };
+
+  const addValue = () =&gt; { const v = fValueInput.trim(); if (v &amp;&amp; !fValues.includes(v)) { setFValues([...fValues, v]); setFValueInput(&quot;&quot;); } };
+  const removeValue = (v: string) =&gt; setFValues(fValues.filter(x =&gt; x !== v));
+
+  const openCreate = () =&gt; {
+    setDialogMode(&quot;create&quot;); setEditing(null);
+    setFName(&quot;&quot;); setFSlug(&quot;&quot;); setFValues([]); setFValueInput(&quot;&quot;); setFDesc(&quot;&quot;); setFStatus(&quot;ACTIVE&quot;);
+    setDialogOpen(true);
+  };
+  const openEdit = (c: VariantAttribute) =&gt; {
+    setDialogMode(&quot;edit&quot;); setEditing(c);
+    setFName(c.name); setFSlug(c.slug); setFValues(Array.isArray(c.values) ? c.values : []); setFValueInput(&quot;&quot;); setFDesc(c.description || &quot;&quot;); setFStatus(c.status);
+    setDialogOpen(true);
+  };
+  const openView = (c: VariantAttribute) =&gt; { setDialogMode(&quot;view&quot;); setEditing(c); setDialogOpen(true); };
+  const openDelete = (c: VariantAttribute) =&gt; { setDeleting(c); setDeleteOpen(true); };
+
+  const handleSave = async (e: React.FormEvent) =&gt; {
+    e.preventDefault();
+    if (!fName.trim()) return;
+    try {
+      setSubmitting(true);
+      const dto = { name: fName.trim(), slug: fSlug.trim() || undefined, values: fValues.length &gt; 0 ? fValues : undefined, description: fDesc.trim() || undefined, status: fStatus };
+      if (editing) { await api.updateVariantAttribute(editing.id, dto); toast({ title: &quot;Success&quot;, description: &quot;Variant attribute updated&quot; }); }
+      else { await api.createVariantAttribute(dto); toast({ title: &quot;Success&quot;, description: &quot;Variant attribute created&quot; }); }
+      setDialogOpen(false); load();
+    } catch (err: any) { toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; }); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleDelete = async () =&gt; {
+    if (!deleting) return;
+    try { setSubmitting(true); await api.deleteVariantAttribute(deleting.id); toast({ title: &quot;Success&quot;, description: &quot;Variant attribute deleted&quot; }); setDeleteOpen(false); setDeleting(null); load(); }
+    catch (err: any) { toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; }); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleBulkDelete = async () =&gt; {
+    try { setSubmitting(true); await api.bulkDeleteVariantAttributes(Array.from(selectedIds)); toast({ title: &quot;Deleted&quot;, description: `${selectedIds.size} attributes deleted` }); setSelectedIds(new Set()); setBulkDeleteOpen(false); load(); }
+    catch (err: any) { toast({ title: &quot;Error&quot;, description: err.message || &quot;Failed&quot;, variant: &quot;destructive&quot; }); }
+    finally { setSubmitting(false); }
+  };
+
+  return (
+    &lt;div className=&quot;space-y-5&quot;&gt;
+      {/* Page Header */}
+      &lt;div className=&quot;flex items-center justify-between&quot;&gt;
+        &lt;div&gt;
+          &lt;div className=&quot;flex items-center gap-1 text-sm text-muted-foreground mb-0.5&quot;&gt;
+            &lt;span&gt;Dashboard&lt;/span&gt;
+            &lt;ChevronRight className=&quot;h-3.5 w-3.5&quot; /&gt;
+            &lt;span className=&quot;text-foreground&quot;&gt;Variant Attributes&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;h1 className=&quot;text-[18px] font-bold text-foreground&quot;&gt;Variant Attributes&lt;/h1&gt;
+        &lt;/div&gt;
+        &lt;div className=&quot;flex items-center gap-2&quot;&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Export PDF&quot;&gt;&lt;FileText className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Export Excel&quot;&gt;&lt;FileSpreadsheet className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Refresh&quot; onClick={load}&gt;&lt;RefreshCw className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[34px] w-[34px] rounded-[5px]&quot; title=&quot;Collapse&quot;&gt;&lt;ChevronUp className=&quot;h-4 w-4&quot; /&gt;&lt;/Button&gt;
+          {canManage &amp;&amp; (
+            &lt;Button className=&quot;h-[34px] rounded-[5px] bg-primary hover:bg-primary/90 text-primary-foreground text-[13px] font-medium px-3&quot; onClick={openCreate}&gt;
+              &lt;Plus className=&quot;mr-1.5 h-3.5 w-3.5&quot; /&gt;Add Attribute
+            &lt;/Button&gt;
+          )}
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      {/* Table */}
+      &lt;div className=&quot;border rounded-[5px] bg-card shadow-sm overflow-hidden&quot;&gt;
+        {/* Table Toolbar */}
+        &lt;div className=&quot;flex items-center gap-4 px-5 py-[15px] border-b&quot;&gt;
+          &lt;div className=&quot;flex items-center gap-2 border rounded-[5px] px-2.5 py-1.5 w-[200px]&quot;&gt;
+            &lt;Search className=&quot;h-3.5 w-3.5 text-muted-foreground&quot; /&gt;
+            &lt;input
+              className=&quot;flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground&quot;
+              placeholder=&quot;Search&quot;
+              value={search}
+              onChange={e =&gt; { setSearch(e.target.value); setPage(1); }}
+            /&gt;
+          &lt;/div&gt;
+          &lt;div className=&quot;flex items-center gap-2 ml-auto&quot;&gt;
+            &lt;Select value={statusFilter} onValueChange={v =&gt; { setStatusFilter(v); setPage(1); }}&gt;
+              &lt;SelectTrigger className=&quot;h-[34px] w-[100px] text-sm rounded-[5px]&quot;&gt;
+                &lt;SelectValue placeholder=&quot;Status&quot; /&gt;
+              &lt;/SelectTrigger&gt;
+              &lt;SelectContent&gt;
+                &lt;SelectItem value=&quot;all&quot;&gt;All Status&lt;/SelectItem&gt;
+                &lt;SelectItem value=&quot;ACTIVE&quot;&gt;Active&lt;/SelectItem&gt;
+                &lt;SelectItem value=&quot;INACTIVE&quot;&gt;Inactive&lt;/SelectItem&gt;
+              &lt;/SelectContent&gt;
+            &lt;/Select&gt;
+            &lt;div className=&quot;flex items-center gap-1.5 text-sm text-foreground font-semibold&quot;&gt;
+              Sort By :
+              &lt;Select defaultValue=&quot;last7&quot;&gt;
+                &lt;SelectTrigger className=&quot;h-[34px] w-[130px] text-sm rounded-[5px]&quot;&gt;
+                  &lt;SelectValue /&gt;
+                &lt;/SelectTrigger&gt;
+                &lt;SelectContent&gt;
+                  &lt;SelectItem value=&quot;last7&quot;&gt;Last 7 Days&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;last30&quot;&gt;Last 30 Days&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;last90&quot;&gt;Last 90 Days&lt;/SelectItem&gt;
+                &lt;/SelectContent&gt;
+              &lt;/Select&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        {/* Table Content */}
+        {isLoading ? (
+          &lt;div className=&quot;flex justify-center py-12&quot;&gt;&lt;Loader2 className=&quot;h-8 w-8 animate-spin text-muted-foreground&quot; /&gt;&lt;/div&gt;
+        ) : error ? (
+          &lt;div className=&quot;flex items-center justify-center py-16 text-destructive&quot;&gt;&lt;p&gt;{error}&lt;/p&gt;&lt;/div&gt;
+        ) : paged.length === 0 ? (
+          &lt;div className=&quot;text-center py-12 text-muted-foreground&quot;&gt;No variant attributes found.&lt;/div&gt;
+        ) : (
+          &lt;div className=&quot;overflow-x-auto&quot;&gt;
+            &lt;table className=&quot;w-full text-sm&quot;&gt;
+              &lt;thead&gt;
+                &lt;tr className=&quot;bg-muted h-[33px]&quot;&gt;
+                  &lt;th className=&quot;w-[60px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;
+                    &lt;Checkbox checked={selectedIds.size === paged.length &amp;&amp; paged.length &gt; 0} onCheckedChange={toggleAll} /&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[210px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;Variant&lt;/th&gt;
+                  &lt;th className=&quot;w-[280px] px-5 py-2 text-left font-semibold text-foreground cursor-pointer select-none&quot; onClick={toggleSort}&gt;
+                    &lt;span className=&quot;inline-flex items-center gap-1.5&quot;&gt;
+                      Values
+                      &lt;ArrowUpDown className=&quot;h-3 w-3&quot; /&gt;
+                    &lt;/span&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[243px] px-5 py-2 text-left font-semibold text-foreground cursor-pointer select-none&quot; onClick={toggleSort}&gt;
+                    &lt;span className=&quot;inline-flex items-center gap-1.5&quot;&gt;
+                      Created Date
+                      &lt;ArrowUpDown className=&quot;h-3 w-3&quot; /&gt;
+                    &lt;/span&gt;
+                  &lt;/th&gt;
+                  &lt;th className=&quot;w-[175px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;Status&lt;/th&gt;
+                  {canManage &amp;&amp; &lt;th className=&quot;w-[172px] px-5 py-2 text-left font-semibold text-foreground&quot;&gt;Actions&lt;/th&gt;}
+                &lt;/tr&gt;
+              &lt;/thead&gt;
+              &lt;tbody&gt;
+                {paged.map(item =&gt; (
+                  &lt;tr key={item.id} className=&quot;h-[56px] border-b&quot;&gt;
+                    &lt;td className=&quot;w-[60px] px-5&quot;&gt;
+                      &lt;Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() =&gt; toggleSelect(item.id)} /&gt;
+                    &lt;/td&gt;
+                    &lt;td className=&quot;w-[210px] px-5 text-foreground font-medium&quot;&gt;{item.name}&lt;/td&gt;
+                    &lt;td className=&quot;w-[280px] px-5&quot;&gt;
+                      &lt;div className=&quot;flex flex-wrap gap-1&quot;&gt;
+                        {Array.isArray(item.values) &amp;&amp; item.values.length &gt; 0 ? (
+                          (item.values as string[]).map((v: string) =&gt; (
+                            &lt;Badge key={v} variant=&quot;secondary&quot; className=&quot;text-xs font-normal&quot;&gt;{v}&lt;/Badge&gt;
+                          ))
+                        ) : (
+                          &lt;span className=&quot;text-muted-foreground text-sm&quot;&gt;—&lt;/span&gt;
+                        )}
+                      &lt;/div&gt;
+                    &lt;/td&gt;
+                    &lt;td className=&quot;w-[243px] px-5 text-foreground&quot;&gt;
+                      {new Date(item.createdAt).toLocaleDateString(&quot;en-US&quot;, { day: &quot;2-digit&quot;, month: &quot;short&quot;, year: &quot;numeric&quot; })}
+                    &lt;/td&gt;
+                    &lt;td className=&quot;w-[175px] px-5&quot;&gt;
+                      &lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[item.status] || statusColors.ACTIVE}`}&gt;
+                        {item.status}
+                      &lt;/span&gt;
+                    &lt;/td&gt;
+                    {canManage &amp;&amp; (
+                      &lt;td className=&quot;w-[172px] px-5&quot;&gt;
+                        &lt;div className=&quot;flex items-center gap-1&quot;&gt;
+                          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[30px] w-[30px] rounded-[5px]&quot; onClick={() =&gt; openView(item)}&gt;
+                            &lt;Eye className=&quot;h-3.5 w-3.5&quot; /&gt;
+                          &lt;/Button&gt;
+                          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[30px] w-[30px] rounded-[5px]&quot; onClick={() =&gt; openEdit(item)}&gt;
+                            &lt;Pencil className=&quot;h-3.5 w-3.5&quot; /&gt;
+                          &lt;/Button&gt;
+                          &lt;Button variant=&quot;outline&quot; size=&quot;icon&quot; className=&quot;h-[30px] w-[30px] rounded-[5px] text-destructive hover:text-destructive&quot; onClick={() =&gt; openDelete(item)}&gt;
+                            &lt;Trash2 className=&quot;h-3.5 w-3.5&quot; /&gt;
+                          &lt;/Button&gt;
+                        &lt;/div&gt;
+                      &lt;/td&gt;
+                    )}
+                  &lt;/tr&gt;
+                ))}
+              &lt;/tbody&gt;
+            &lt;/table&gt;
+          &lt;/div&gt;
+        )}
+
+        {/* Table Footer */}
+        {!isLoading &amp;&amp; paged.length &gt; 0 &amp;&amp; (
+          &lt;div className=&quot;flex items-center justify-between px-5 py-[15px] border-t&quot;&gt;
+            &lt;div className=&quot;flex items-center gap-2 text-sm text-muted-foreground&quot;&gt;
+              &lt;span&gt;Row Per Page&lt;/span&gt;
+              &lt;Select defaultValue=&quot;10&quot;&gt;
+                &lt;SelectTrigger className=&quot;h-8 w-16 text-xs rounded-[5px]&quot;&gt;
+                  &lt;SelectValue /&gt;
+                &lt;/SelectTrigger&gt;
+                &lt;SelectContent&gt;
+                  &lt;SelectItem value=&quot;10&quot;&gt;10&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;20&quot;&gt;20&lt;/SelectItem&gt;
+                  &lt;SelectItem value=&quot;50&quot;&gt;50&lt;/SelectItem&gt;
+                &lt;/SelectContent&gt;
+              &lt;/Select&gt;
+              &lt;span&gt;Entries&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div className=&quot;flex items-center gap-3&quot;&gt;
+              &lt;button className=&quot;disabled:opacity-30&quot; disabled={page &lt;= 1} onClick={() =&gt; setPage(p =&gt; Math.max(1, p - 1))}&gt;
+                &lt;ChevronLeft className=&quot;h-4 w-4 text-muted-foreground&quot; /&gt;
+              &lt;/button&gt;
+              &lt;div className=&quot;flex items-center gap-2&quot;&gt;
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) =&gt; {
+                  let pageNum: number;
+                  if (totalPages &lt;= 5) pageNum = i + 1;
+                  else if (page &lt;= 3) pageNum = i + 1;
+                  else if (page &gt;= totalPages - 2) pageNum = totalPages - 4 + i;
+                  else pageNum = page - 2 + i;
+                  return (
+                    &lt;button key={pageNum}
+                      className={`h-6 w-6 rounded-full text-xs flex items-center justify-center border ${pageNum === page ? &quot;bg-primary text-primary-foreground border-primary&quot; : &quot;text-muted-foreground&quot;}`}
+                      onClick={() =&gt; setPage(pageNum)}&gt;
+                      {pageNum}
+                    &lt;/button&gt;
+                  );
+                })}
+                {totalPages &gt; 5 &amp;&amp; page &lt; totalPages - 2 &amp;&amp; (
+                  &lt;span className=&quot;text-xs text-muted-foreground&quot;&gt;...&lt;/span&gt;
+                )}
+                {totalPages &gt; 5 &amp;&amp; page &lt; totalPages - 2 &amp;&amp; (
+                  &lt;button className=&quot;h-6 w-6 rounded-full text-xs flex items-center justify-center border text-muted-foreground&quot;
+                    onClick={() =&gt; setPage(totalPages)}&gt;
+                    {totalPages}
+                  &lt;/button&gt;
+                )}
+              &lt;/div&gt;
+              &lt;button className=&quot;disabled:opacity-30&quot; disabled={page &gt;= totalPages} onClick={() =&gt; setPage(p =&gt; Math.min(totalPages, p + 1))}&gt;
+                &lt;ChevronRight className=&quot;h-4 w-4 text-muted-foreground&quot; /&gt;
+              &lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        )}
+      &lt;/div&gt;
+
+      {/* Create/Edit Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode !== &quot;view&quot;} onOpenChange={o =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent className=&quot;sm:max-w-[550px]&quot;&gt;
+          &lt;form onSubmit={handleSave}&gt;
+            &lt;DialogHeader&gt;&lt;DialogTitle className=&quot;text-lg font-bold&quot;&gt;{editing ? &quot;Edit Variant Attribute&quot; : &quot;Add Variant Attribute&quot;}&lt;/DialogTitle&gt;&lt;/DialogHeader&gt;
+            &lt;div className=&quot;space-y-4 py-4&quot;&gt;
+              &lt;div className=&quot;grid grid-cols-2 gap-4&quot;&gt;
+                &lt;div&gt;
+                  &lt;Label className=&quot;text-sm font-medium&quot;&gt;Attribute Name&lt;/Label&gt;
+                  &lt;Input value={fName} onChange={e =&gt; setFName(e.target.value)} placeholder=&quot;e.g. Color&quot; required maxLength={100} className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+                &lt;/div&gt;
+                &lt;div&gt;
+                  &lt;Label className=&quot;text-sm font-medium&quot;&gt;Slug&lt;/Label&gt;
+                  &lt;Input value={fSlug} onChange={e =&gt; setFSlug(e.target.value)} placeholder=&quot;Auto-generated&quot; maxLength={100} className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className=&quot;text-sm font-medium&quot;&gt;Values&lt;/Label&gt;
+                &lt;div className=&quot;flex gap-2 mt-1.5&quot;&gt;
+                  &lt;Input value={fValueInput} onChange={e =&gt; setFValueInput(e.target.value)} placeholder=&quot;Add a value&quot; className=&quot;h-[38px] rounded-[5px]&quot; onKeyDown={e =&gt; { if (e.key === &quot;Enter&quot;) { e.preventDefault(); addValue(); } }} /&gt;
+                  &lt;Button type=&quot;button&quot; variant=&quot;outline&quot; onClick={addValue} className=&quot;h-[38px] rounded-[5px]&quot;&gt;Add&lt;/Button&gt;
+                &lt;/div&gt;
+                {fValues.length &gt; 0 &amp;&amp; (
+                  &lt;div className=&quot;flex flex-wrap gap-1 mt-2&quot;&gt;
+                    {fValues.map(v =&gt; (
+                      &lt;Badge key={v} variant=&quot;secondary&quot; className=&quot;text-xs gap-1 font-normal&quot;&gt;
+                        {v}
+                        &lt;button type=&quot;button&quot; onClick={() =&gt; removeValue(v)} className=&quot;ml-0.5 hover:text-destructive&quot;&gt;
+                          &lt;X className=&quot;h-3 w-3&quot; /&gt;
+                        &lt;/button&gt;
+                      &lt;/Badge&gt;
+                    ))}
+                  &lt;/div&gt;
+                )}
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className=&quot;text-sm font-medium&quot;&gt;Description&lt;/Label&gt;
+                &lt;Input value={fDesc} onChange={e =&gt; setFDesc(e.target.value)} placeholder=&quot;Enter description&quot; className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot; /&gt;
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;Label className=&quot;text-sm font-medium&quot;&gt;Status&lt;/Label&gt;
+                &lt;Select value={fStatus} onValueChange={setFStatus}&gt;
+                  &lt;SelectTrigger className=&quot;mt-1.5 h-[38px] rounded-[5px]&quot;&gt;&lt;SelectValue /&gt;&lt;/SelectTrigger&gt;
+                  &lt;SelectContent&gt;
+                    &lt;SelectItem value=&quot;ACTIVE&quot;&gt;Active&lt;/SelectItem&gt;
+                    &lt;SelectItem value=&quot;INACTIVE&quot;&gt;Inactive&lt;/SelectItem&gt;
+                  &lt;/SelectContent&gt;
+                &lt;/Select&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;DialogFooter&gt;
+              &lt;Button type=&quot;button&quot; variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)} disabled={submitting} className=&quot;rounded-[5px]&quot;&gt;Cancel&lt;/Button&gt;
+              &lt;Button type=&quot;submit&quot; disabled={submitting || !fName.trim()} className=&quot;rounded-[5px] bg-primary hover:bg-primary/90 text-primary-foreground&quot;&gt;
+                {submitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Saving...&lt;/&gt; : editing ? &quot;Update&quot; : &quot;Create&quot;}
+              &lt;/Button&gt;
+            &lt;/DialogFooter&gt;
+          &lt;/form&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* View Dialog */}
+      &lt;Dialog open={dialogOpen &amp;&amp; dialogMode === &quot;view&quot;} onOpenChange={o =&gt; { if (!o) setDialogOpen(false); }}&gt;
+        &lt;DialogContent&gt;
+          &lt;DialogHeader&gt;&lt;DialogTitle className=&quot;text-lg font-bold&quot;&gt;{editing?.name}&lt;/DialogTitle&gt;&lt;/DialogHeader&gt;
+          &lt;div className=&quot;space-y-3 py-4 text-sm&quot;&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Slug&lt;/span&gt;&lt;span&gt;{editing?.slug}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Values&lt;/span&gt;&lt;span&gt;{Array.isArray(editing?.values) ? (editing!.values as string[]).join(&quot;, &quot;) : &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Description&lt;/span&gt;&lt;span&gt;{editing?.description || &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Status&lt;/span&gt;&lt;span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[editing?.status || &quot;ACTIVE&quot;]}`}&gt;{editing?.status}&lt;/span&gt;&lt;/div&gt;
+            &lt;div className=&quot;flex justify-between border-b pb-2&quot;&gt;&lt;span className=&quot;text-muted-foreground&quot;&gt;Created&lt;/span&gt;&lt;span&gt;{editing ? new Date(editing.createdAt).toLocaleString() : &quot;—&quot;}&lt;/span&gt;&lt;/div&gt;
+          &lt;/div&gt;
+          &lt;DialogFooter&gt;&lt;Button variant=&quot;outline&quot; onClick={() =&gt; setDialogOpen(false)} className=&quot;rounded-[5px]&quot;&gt;Close&lt;/Button&gt;&lt;/DialogFooter&gt;
+        &lt;/DialogContent&gt;
+      &lt;/Dialog&gt;
+
+      {/* Delete Confirmation */}
+      &lt;AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;&lt;AlertDialogTitle&gt;Delete Variant Attribute?&lt;/AlertDialogTitle&gt;&lt;AlertDialogDescription&gt;You are about to delete &amp;quot;{deleting?.name}&amp;quot;. This action cannot be undone.&lt;/AlertDialogDescription&gt;&lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={submitting} className=&quot;rounded-[5px]&quot;&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleDelete} disabled={submitting} className=&quot;rounded-[5px] bg-destructive hover:bg-destructive/90&quot;&gt;{submitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : &quot;Delete&quot;}&lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+
+      {/* Bulk Delete */}
+      &lt;AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}&gt;
+        &lt;AlertDialogContent&gt;
+          &lt;AlertDialogHeader&gt;&lt;AlertDialogTitle&gt;Delete Variant Attributes?&lt;/AlertDialogTitle&gt;&lt;AlertDialogDescription&gt;{selectedIds.size} attributes will be permanently deleted.&lt;/AlertDialogDescription&gt;&lt;/AlertDialogHeader&gt;
+          &lt;AlertDialogFooter&gt;
+            &lt;AlertDialogCancel disabled={submitting} className=&quot;rounded-[5px]&quot;&gt;Cancel&lt;/AlertDialogCancel&gt;
+            &lt;AlertDialogAction onClick={handleBulkDelete} disabled={submitting} className=&quot;rounded-[5px] bg-destructive hover:bg-destructive/90&quot;&gt;{submitting ? &lt;&gt;&lt;Loader2 className=&quot;mr-2 h-4 w-4 animate-spin&quot; /&gt; Deleting...&lt;/&gt; : `Delete ${selectedIds.size}`}&lt;/AlertDialogAction&gt;
+          &lt;/AlertDialogFooter&gt;
+        &lt;/AlertDialogContent&gt;
+      &lt;/AlertDialog&gt;
+    &lt;/div&gt;
+  );
+}
+</pre>
+  </div>
+  <p class="lesson-nav">
+    <a href="0004-backend-complete.html">&larr; Back to Backend Complete</a>
+  </p>
+
+</body>
+</html>

@@ -14,6 +14,10 @@ public interface IApplicationDbContext
     DbSet<Unit> Units { get; }
     DbSet<Warranty> Warranties { get; }
     DbSet<VariantAttribute> VariantAttributes { get; }
+    DbSet<Warehouse> Warehouses { get; }
+    DbSet<Inventory> Inventories { get; }
+    DbSet<StockAdjustment> StockAdjustments { get; }
+    DbSet<StockAdjustmentItem> StockAdjustmentItems { get; }
     DbSet<StockLedgerEntry> StockLedgerEntries { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

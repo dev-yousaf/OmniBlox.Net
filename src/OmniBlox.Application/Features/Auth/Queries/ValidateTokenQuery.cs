@@ -51,6 +51,7 @@ public class ValidateTokenQueryHandler : IRequestHandler<ValidateTokenQuery, Val
                     Name = user.Company.Name,
                     WorkspaceUrl = user.Company.WorkspaceUrl,
                     Industry = user.Company.Industry,
+                    OtherIndustry = user.Company.OtherIndustry,
                     Country = user.Company.Country,
                 },
             },

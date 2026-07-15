@@ -8,5 +8,6 @@ public record SignupRequest
     public string CompanyName { get; init; } = string.Empty;
     public string WorkspaceUrl { get; init; } = string.Empty;
     public string? Industry { get; init; }
+    public string? OtherIndustry { get; init; }
     public string? Country { get; init; }
 }

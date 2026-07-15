@@ -227,7 +227,14 @@ export function DetailsTab({
 						{inventory.length > 0 && (
 							<div>
 								<p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">Store / Warehouse</p>
-								<p className="text-[13px] font-semibold text-card-foreground">{inventory[0]?.warehouseName || "—"}</p>
+								<div className="flex flex-wrap gap-1">
+									{inventory.map((inv, idx) => (
+										<span key={inv.warehouseId} className="text-[13px] font-semibold text-card-foreground">
+											{idx > 0 && <span className="text-muted-foreground/50 mx-0.5">, </span>}
+											{inv.warehouseName}
+										</span>
+									))}
+								</div>
 							</div>
 						)}
 						{product.brand && (

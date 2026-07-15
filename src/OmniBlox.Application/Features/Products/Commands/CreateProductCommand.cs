@@ -33,6 +33,7 @@ public record CreateProductCommand : IRequest<ProductDto>
     public string? Warranty { get; init; }
     public DateTime? ManufacturedDate { get; init; }
     public DateTime? ExpiryDate { get; init; }
+    public Guid? WarehouseId { get; init; }
 }
 
 public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, ProductDto>
@@ -80,6 +81,28 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
         _context.Products.Add(product);
         await _context.SaveChangesAsync(ct);
+
+        if (request.Stock > 0 && request.WarehouseId.HasValue)
+        {
+            _context.Inventories.Add(new Domain.Entities.Inventory
+            {
+                ProductId = product.Id,
+                WarehouseId = request.WarehouseId.Value,
+                Quantity = request.Stock,
+            });
+
+            _context.StockLedgerEntries.Add(new StockLedgerEntry
+            {
+                ProductId = product.Id,
+                WarehouseId = request.WarehouseId.Value,
+                Quantity = request.Stock,
+                Balance = request.Stock,
+                Type = "INITIAL",
+                Reference = $"Initial stock for {product.Name}",
+            });
+
+            await _context.SaveChangesAsync(ct);
+        }
 
         return ProductDto.FromEntity(product);
     }

@@ -1,0 +1,3202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 4: Complete Backend - Settings CRUD &amp; Product Management</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+  <p class="lesson-meta">
+    <span class="lesson-number">Lesson 4 (Backend)</span> &middot;
+    Complete Backend Implementation &middot;
+    Every file, every line
+  </p>
+
+  <h1>Backend: Settings CRUD &amp; Product Management — Complete Source</h1>
+
+  <p>
+    This document contains <strong>every source file</strong> from the backend — Domain, Application,
+    Infrastructure, and API layers — for the 6 settings features (Brands, ProductCategories,
+    SubCategories, Units, Warranties, VariantAttributes) and the extended Products feature.
+    Nothing is omitted, nothing is summarized.
+  </p>
+
+  <!-- ============================================================
+       LAYER 0: Domain
+       ============================================================ -->
+  <h2>Layer 0 — Domain Layer (9 files)</h2>
+
+  <h3>0.1 ITenantEntity.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Domain/Interfaces/ITenantEntity.cs</div>
+    <pre>namespace OmniBlox.Domain.Interfaces;
+
+public interface ITenantEntity
+{
+    Guid CompanyId { get; set; }
+}</pre>
+  </div>
+
+  <h3>0.2 ActiveStatus.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Domain/Enums/ActiveStatus.cs</div>
+    <pre>namespace OmniBlox.Domain.Enums;
+
+public enum ActiveStatus
+{
+    ACTIVE = 0,
+    INACTIVE = 1,
+}</pre>
+  </div>
+
+  <h3>0.3 BaseEntity.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Domain/Entities/BaseEntity.cs</div>
+    <pre>namespace OmniBlox.Domain.Entities;
+
+public abstract class BaseEntity
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+}</pre>
+  </div>
+
+  <h3>0.4 Brand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Domain/Entities/Brand.cs</div>
+    <pre>namespace OmniBlox.Domain.Entities;
+
+public class Brand : BaseEntity, Interfaces.ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
+    public string? Description { get; set; }
+    public Enums.ActiveStatus Status { get; set; } = Enums.ActiveStatus.ACTIVE;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}</pre>
+  </div>
+
+  <h3>0.5 ProductCategory.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Domain/Entities/ProductCategory.cs</div>
+    <pre>namespace OmniBlox.Domain.Entities;
+
+public class ProductCategory : BaseEntity, Interfaces.ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public Enums.ActiveStatus Status { get; set; } = Enums.ActiveStatus.ACTIVE;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+    public ICollection&lt;SubCategory&gt; SubCategories { get; set; } = [];
+}</pre>
+  </div>
+
+  <h3>0.6 SubCategory.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Domain/Entities/SubCategory.cs</div>
+    <pre>namespace OmniBlox.Domain.Entities;
+
+public class SubCategory : BaseEntity, Interfaces.ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Code { get; set; }
+    public string? ImageUrl { get; set; }
+    public string? Description { get; set; }
+    public Enums.ActiveStatus Status { get; set; } = Enums.ActiveStatus.ACTIVE;
+    public Guid CategoryId { get; set; }
+    public ProductCategory Category { get; set; } = null!;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}</pre>
+  </div>
+
+  <h3>0.7 Unit.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Domain/Entities/Unit.cs</div>
+    <pre>namespace OmniBlox.Domain.Entities;
+
+public class Unit : BaseEntity, Interfaces.ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string ShortName { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public Enums.ActiveStatus Status { get; set; } = Enums.ActiveStatus.ACTIVE;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}</pre>
+  </div>
+
+  <h3>0.8 Warranty.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Domain/Entities/Warranty.cs</div>
+    <pre>namespace OmniBlox.Domain.Entities;
+
+public class Warranty : BaseEntity, Interfaces.ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public int Duration { get; set; }
+    public string DurationType { get; set; } = "days";
+    public string? Description { get; set; }
+    public Enums.ActiveStatus Status { get; set; } = Enums.ActiveStatus.ACTIVE;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}</pre>
+  </div>
+
+  <h3>0.9 VariantAttribute.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Domain/Entities/VariantAttribute.cs</div>
+    <pre>using System.Text.Json;
+
+namespace OmniBlox.Domain.Entities;
+
+public class VariantAttribute : BaseEntity, Interfaces.ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public JsonDocument? Values { get; set; }
+    public string? Description { get; set; }
+    public Enums.ActiveStatus Status { get; set; } = Enums.ActiveStatus.ACTIVE;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 1: Infrastructure
+       ============================================================ -->
+  <h2>Layer 1 — Infrastructure Layer (9 files: 6 configs + 1 interface + 1 context + 1 service)</h2>
+
+  <h3>1.1 IApplicationDbContext.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Common/Interfaces/IApplicationDbContext.cs</div>
+    <pre>using Microsoft.EntityFrameworkCore;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Common.Interfaces;
+
+public interface IApplicationDbContext
+{
+    DbSet&lt;Company&gt; Companies { get; }
+    DbSet&lt;User&gt; Users { get; }
+    DbSet&lt;Product&gt; Products { get; }
+    DbSet&lt;ProductCategory&gt; ProductCategories { get; }
+    DbSet&lt;SubCategory&gt; SubCategories { get; }
+    DbSet&lt;Brand&gt; Brands { get; }
+    DbSet&lt;Unit&gt; Units { get; }
+    DbSet&lt;Warranty&gt; Warranties { get; }
+    DbSet&lt;VariantAttribute&gt; VariantAttributes { get; }
+    DbSet&lt;StockLedgerEntry&gt; StockLedgerEntries { get; }
+    Task&lt;int&gt; SaveChangesAsync(CancellationToken cancellationToken = default);
+}</pre>
+  </div>
+
+  <h3>1.2 CurrentUserService.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Infrastructure/Auth/CurrentUserService.cs</div>
+    <pre>using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
+using OmniBlox.Application.Common.Interfaces;
+
+namespace OmniBlox.Infrastructure.Auth;
+
+public class CurrentUserService : ICurrentUserService
+{
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public CurrentUserService(IHttpContextAccessor httpContextAccessor)
+    {
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    public Guid UserId
+    {
+        get
+        {
+            var value = _httpContextAccessor.HttpContext?.User
+                .FindFirstValue(ClaimTypes.NameIdentifier);
+
+            return value is not null ? Guid.Parse(value)
+                : throw new UnauthorizedAccessException("User not authenticated.");
+        }
+    }
+
+    public Guid CompanyId
+    {
+        get
+        {
+            var value = _httpContextAccessor.HttpContext?.User
+                .FindFirstValue("companyId");
+
+            return value is not null ? Guid.Parse(value) : Guid.Empty;
+        }
+    }
+
+    public string Role =&gt;
+        _httpContextAccessor.HttpContext?.User
+            .FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+
+    public string Email =&gt;
+        _httpContextAccessor.HttpContext?.User
+            .FindFirstValue(ClaimTypes.Email) ?? string.Empty;
+}</pre>
+  </div>
+
+  <h3>1.3 AppDbContext.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Infrastructure/Persistence/AppDbContext.cs</div>
+    <pre>using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Interfaces;
+
+namespace OmniBlox.Infrastructure.Persistence;
+
+public class AppDbContext : DbContext, IApplicationDbContext
+{
+    private readonly ICurrentUserService _currentUser;
+
+    public AppDbContext(
+        DbContextOptions&lt;AppDbContext&gt; options,
+        ICurrentUserService currentUser)
+        : base(options)
+    {
+        _currentUser = currentUser;
+    }
+
+    public DbSet&lt;Company&gt; Companies =&gt; Set&lt;Company&gt;();
+    public DbSet&lt;User&gt; Users =&gt; Set&lt;User&gt;();
+    public DbSet&lt;Product&gt; Products =&gt; Set&lt;Product&gt;();
+    public DbSet&lt;ProductCategory&gt; ProductCategories =&gt; Set&lt;ProductCategory&gt;();
+    public DbSet&lt;SubCategory&gt; SubCategories =&gt; Set&lt;SubCategory&gt;();
+    public DbSet&lt;Brand&gt; Brands =&gt; Set&lt;Brand&gt;();
+    public DbSet&lt;Unit&gt; Units =&gt; Set&lt;Unit&gt;();
+    public DbSet&lt;Warranty&gt; Warranties =&gt; Set&lt;Warranty&gt;();
+    public DbSet&lt;VariantAttribute&gt; VariantAttributes =&gt; Set&lt;VariantAttribute&gt;();
+    public DbSet&lt;StockLedgerEntry&gt; StockLedgerEntries =&gt; Set&lt;StockLedgerEntry&gt;();
+
+    protected override void OnModelCreating(ModelBuilder builder)
+    {
+        base.OnModelCreating(builder);
+        builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        foreach (var entityType in builder.Model.GetEntityTypes())
+        {
+            if (typeof(ITenantEntity).IsAssignableFrom(entityType.ClrType))
+            {
+                var parameter = Expression.Parameter(entityType.ClrType, "e");
+                var property = Expression.Property(parameter, nameof(ITenantEntity.CompanyId));
+                var companyId = Expression.Constant(_currentUser.CompanyId);
+                var body = Expression.Equal(property, companyId);
+                var lambda = Expression.Lambda(body, parameter);
+
+                entityType.SetQueryFilter(lambda);
+            }
+        }
+    }
+
+    public override async Task&lt;int&gt; SaveChangesAsync(CancellationToken ct = default)
+    {
+        foreach (var entry in ChangeTracker.Entries&lt;ITenantEntity&gt;())
+        {
+            if (entry.State == EntityState.Added &amp;&amp; entry.Entity.CompanyId == Guid.Empty)
+            {
+                entry.Entity.CompanyId = _currentUser.CompanyId;
+            }
+        }
+
+        return await base.SaveChangesAsync(ct);
+    }
+}</pre>
+  </div>
+
+  <h3>1.4 BrandConfiguration.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Infrastructure/Persistence/Configurations/BrandConfiguration.cs</div>
+    <pre>using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence.Configurations;
+
+public class BrandConfiguration : IEntityTypeConfiguration&lt;Brand&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;Brand&gt; builder)
+    {
+        builder.ToTable("Brands");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.ImageUrl).HasMaxLength(500);
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+  </div>
+
+  <h3>1.5 ProductCategoryConfiguration.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Infrastructure/Persistence/Configurations/ProductCategoryConfiguration.cs</div>
+    <pre>using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence.Configurations;
+
+public class ProductCategoryConfiguration : IEntityTypeConfiguration&lt;ProductCategory&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;ProductCategory&gt; builder)
+    {
+        builder.ToTable("ProductCategories");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+  </div>
+
+  <h3>1.6 SubCategoryConfiguration.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Infrastructure/Persistence/Configurations/SubCategoryConfiguration.cs</div>
+    <pre>using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence.Configurations;
+
+public class SubCategoryConfiguration : IEntityTypeConfiguration&lt;SubCategory&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;SubCategory&gt; builder)
+    {
+        builder.ToTable("SubCategories");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Code).HasMaxLength(100);
+        builder.Property(x =&gt; x.ImageUrl).HasMaxLength(500);
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Category).WithMany(c =&gt; c.SubCategories).HasForeignKey(x =&gt; x.CategoryId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+  </div>
+
+  <h3>1.7 UnitConfiguration.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Infrastructure/Persistence/Configurations/UnitConfiguration.cs</div>
+    <pre>using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence.Configurations;
+
+public class UnitConfiguration : IEntityTypeConfiguration&lt;Unit&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;Unit&gt; builder)
+    {
+        builder.ToTable("Units");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(100).IsRequired();
+        builder.Property(x =&gt; x.ShortName).HasMaxLength(20).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(100).IsRequired();
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+  </div>
+
+  <h3>1.8 WarrantyConfiguration.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Infrastructure/Persistence/Configurations/WarrantyConfiguration.cs</div>
+    <pre>using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence.Configurations;
+
+public class WarrantyConfiguration : IEntityTypeConfiguration&lt;Warranty&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;Warranty&gt; builder)
+    {
+        builder.ToTable("Warranties");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Duration).IsRequired();
+        builder.Property(x =&gt; x.DurationType).HasMaxLength(20).IsRequired().HasDefaultValue("days");
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Name }).IsUnique();
+    }
+}</pre>
+  </div>
+
+  <h3>1.9 VariantAttributeConfiguration.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Infrastructure/Persistence/Configurations/VariantAttributeConfiguration.cs</div>
+    <pre>using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Infrastructure.Persistence.Configurations;
+
+public class VariantAttributeConfiguration : IEntityTypeConfiguration&lt;VariantAttribute&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;VariantAttribute&gt; builder)
+    {
+        builder.ToTable("VariantAttributes");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Values).HasColumnType("jsonb");
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 2: Application — DTOs
+       ============================================================ -->
+  <h2>Layer 2 — Application Layer: DTOs (6 files)</h2>
+
+  <h3>2.1 BrandDto.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Brands/DTOs/BrandDto.cs</div>
+    <pre>using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.Brands.DTOs;
+
+public record BrandDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string Status { get; init; } = "ACTIVE";
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+
+    public static BrandDto FromEntity(Brand entity) =&gt; new()
+    {
+        Id = entity.Id,
+        Name = entity.Name,
+        Slug = entity.Slug,
+        ImageUrl = entity.ImageUrl,
+        Description = entity.Description,
+        Status = entity.Status.ToString(),
+        CreatedAt = entity.CreatedAt,
+        UpdatedAt = entity.UpdatedAt,
+    };
+}
+
+public record CreateBrandRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Slug { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public record UpdateBrandRequest
+{
+    public string? Name { get; init; }
+    public string? Slug { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}</pre>
+  </div>
+
+  <h3>2.2 ProductCategoryDto.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/ProductCategories/DTOs/ProductCategoryDto.cs</div>
+    <pre>using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.ProductCategories.DTOs;
+
+public record ProductCategoryDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string Status { get; init; } = "ACTIVE";
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+
+    public static ProductCategoryDto FromEntity(ProductCategory entity) =&gt; new()
+    {
+        Id = entity.Id,
+        Name = entity.Name,
+        Slug = entity.Slug,
+        Description = entity.Description,
+        Status = entity.Status.ToString(),
+        CreatedAt = entity.CreatedAt,
+        UpdatedAt = entity.UpdatedAt,
+    };
+}
+
+public record CreateProductCategoryRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Slug { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public record UpdateProductCategoryRequest
+{
+    public string? Name { get; init; }
+    public string? Slug { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public record DeleteCategoryResponse
+{
+    public string Message { get; init; } = string.Empty;
+    public List&lt;AffectedProduct&gt; AffectedProducts { get; init; } = [];
+}
+
+public record AffectedProduct
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Sku { get; init; } = string.Empty;
+}
+
+public record BulkDeleteResponse
+{
+    public string Message { get; init; } = string.Empty;
+    public List&lt;Guid&gt; Deleted { get; init; } = [];
+    public List&lt;FailedItem&gt; Failed { get; init; } = [];
+}
+
+public record FailedItem
+{
+    public Guid Id { get; init; }
+    public string Error { get; init; } = string.Empty;
+}</pre>
+  </div>
+
+  <h3>2.3 SubCategoryDto.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/SubCategories/DTOs/SubCategoryDto.cs</div>
+    <pre>using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.SubCategories.DTOs;
+
+public record SubCategoryDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? Code { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string Status { get; init; } = "ACTIVE";
+    public Guid CategoryId { get; init; }
+    public Guid CompanyId { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+    public SubCategoryCategoryDto? Category { get; init; }
+
+    public static SubCategoryDto FromEntity(SubCategory entity) =&gt; new()
+    {
+        Id = entity.Id,
+        Name = entity.Name,
+        Slug = entity.Slug,
+        Code = entity.Code,
+        ImageUrl = entity.ImageUrl,
+        Description = entity.Description,
+        Status = entity.Status.ToString(),
+        CategoryId = entity.CategoryId,
+        CompanyId = entity.CompanyId,
+        CreatedAt = entity.CreatedAt,
+        UpdatedAt = entity.UpdatedAt,
+        Category = entity.Category is null ? null : new SubCategoryCategoryDto { Id = entity.Category.Id, Name = entity.Category.Name, Slug = entity.Category.Slug },
+    };
+}
+
+public record SubCategoryCategoryDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+}
+
+public record CreateSubCategoryRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public Guid CategoryId { get; init; }
+    public string? Slug { get; init; }
+    public string? Code { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public record UpdateSubCategoryRequest
+{
+    public string? Name { get; init; }
+    public Guid? CategoryId { get; init; }
+    public string? Slug { get; init; }
+    public string? Code { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}</pre>
+  </div>
+
+  <h3>2.4 UnitDto.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Units/DTOs/UnitDto.cs</div>
+    <pre>using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.Units.DTOs;
+
+public record UnitDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string ShortName { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string Status { get; init; } = "ACTIVE";
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+
+    public static UnitDto FromEntity(Unit entity) =&gt; new()
+    {
+        Id = entity.Id,
+        Name = entity.Name,
+        ShortName = entity.ShortName,
+        Slug = entity.Slug,
+        Description = entity.Description,
+        Status = entity.Status.ToString(),
+        CreatedAt = entity.CreatedAt,
+        UpdatedAt = entity.UpdatedAt,
+    };
+}
+
+public record CreateUnitRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string ShortName { get; init; } = string.Empty;
+    public string? Slug { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public record UpdateUnitRequest
+{
+    public string? Name { get; init; }
+    public string? ShortName { get; init; }
+    public string? Slug { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}</pre>
+  </div>
+
+  <h3>2.5 WarrantyDto.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Warranties/DTOs/WarrantyDto.cs</div>
+    <pre>using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.Warranties.DTOs;
+
+public record WarrantyDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public int Duration { get; init; }
+    public string DurationType { get; init; } = "days";
+    public string? Description { get; init; }
+    public string Status { get; init; } = "ACTIVE";
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+
+    public static WarrantyDto FromEntity(Warranty entity) =&gt; new()
+    {
+        Id = entity.Id,
+        Name = entity.Name,
+        Duration = entity.Duration,
+        DurationType = entity.DurationType,
+        Description = entity.Description,
+        Status = entity.Status.ToString(),
+        CreatedAt = entity.CreatedAt,
+        UpdatedAt = entity.UpdatedAt,
+    };
+}
+
+public record CreateWarrantyRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public int Duration { get; init; }
+    public string? DurationType { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public record UpdateWarrantyRequest
+{
+    public string? Name { get; init; }
+    public int? Duration { get; init; }
+    public string? DurationType { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}</pre>
+  </div>
+
+  <h3>2.6 VariantAttributeDto.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/VariantAttributes/DTOs/VariantAttributeDto.cs</div>
+    <pre>using System.Text.Json;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.VariantAttributes.DTOs;
+
+public record VariantAttributeDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public JsonDocument? Values { get; init; }
+    public string? Description { get; init; }
+    public string Status { get; init; } = "ACTIVE";
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+
+    public static VariantAttributeDto FromEntity(VariantAttribute entity) =&gt; new()
+    {
+        Id = entity.Id,
+        Name = entity.Name,
+        Slug = entity.Slug,
+        Values = entity.Values,
+        Description = entity.Description,
+        Status = entity.Status.ToString(),
+        CreatedAt = entity.CreatedAt,
+        UpdatedAt = entity.UpdatedAt,
+    };
+}
+
+public record CreateVariantAttributeRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Slug { get; init; }
+    public JsonDocument? Values { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public record UpdateVariantAttributeRequest
+{
+    public string? Name { get; init; }
+    public string? Slug { get; init; }
+    public JsonDocument? Values { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 3: Application — Create Commands
+       ============================================================ -->
+  <h2>Layer 3 — Application Layer: Create Commands (6 files)</h2>
+
+  <h3>3.1 CreateBrandCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Brands/Commands/CreateBrandCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Brands.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Brands.Commands;
+
+public record CreateBrandCommand : IRequest&lt;BrandDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Slug { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class CreateBrandCommandHandler : IRequestHandler&lt;CreateBrandCommand, BrandDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public CreateBrandCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BrandDto&gt; Handle(CreateBrandCommand request, CancellationToken ct)
+    {
+        var slug = request.Slug?.ToLowerInvariant() ?? request.Name.ToLowerInvariant().Replace(" ", "-");
+
+        var exists = await _context.Brands.AnyAsync(x =&gt; x.Slug == slug, ct);
+        if (exists) throw new ConflictException($"Brand with slug '{slug}' already exists.");
+
+        var entity = new Brand
+        {
+            Name = request.Name,
+            Slug = slug,
+            ImageUrl = request.ImageUrl,
+            Description = request.Description,
+            Status = request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+        };
+
+        _context.Brands.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return BrandDto.FromEntity(entity);
+    }
+}
+
+public class CreateBrandCommandValidator : AbstractValidator&lt;CreateBrandCommand&gt;
+{
+    public CreateBrandCommandValidator()
+    {
+        RuleFor(v =&gt; v.Name).NotEmpty().MaximumLength(200);
+    }
+}</pre>
+  </div>
+
+  <h3>3.2 CreateProductCategoryCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/ProductCategories/Commands/CreateProductCategoryCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.ProductCategories.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.ProductCategories.Commands;
+
+public record CreateProductCategoryCommand : IRequest&lt;ProductCategoryDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Slug { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class CreateProductCategoryCommandHandler : IRequestHandler&lt;CreateProductCategoryCommand, ProductCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public CreateProductCategoryCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;ProductCategoryDto&gt; Handle(CreateProductCategoryCommand request, CancellationToken ct)
+    {
+        var slug = request.Slug?.ToLowerInvariant() ?? request.Name.ToLowerInvariant().Replace(" ", "-");
+
+        var exists = await _context.ProductCategories.AnyAsync(x =&gt; x.Slug == slug, ct);
+        if (exists) throw new ConflictException($"Category with slug '{slug}' already exists.");
+
+        var entity = new ProductCategory
+        {
+            Name = request.Name,
+            Slug = slug,
+            Description = request.Description,
+            Status = request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+        };
+
+        _context.ProductCategories.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return ProductCategoryDto.FromEntity(entity);
+    }
+}
+
+public class CreateProductCategoryCommandValidator : AbstractValidator&lt;CreateProductCategoryCommand&gt;
+{
+    public CreateProductCategoryCommandValidator()
+    {
+        RuleFor(v =&gt; v.Name).NotEmpty().MaximumLength(200);
+    }
+}</pre>
+  </div>
+
+  <h3>3.3 CreateSubCategoryCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/SubCategories/Commands/CreateSubCategoryCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.SubCategories.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.SubCategories.Commands;
+
+public record CreateSubCategoryCommand : IRequest&lt;SubCategoryDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public Guid CategoryId { get; init; }
+    public string? Slug { get; init; }
+    public string? Code { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class CreateSubCategoryCommandHandler : IRequestHandler&lt;CreateSubCategoryCommand, SubCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public CreateSubCategoryCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;SubCategoryDto&gt; Handle(CreateSubCategoryCommand request, CancellationToken ct)
+    {
+        var categoryExists = await _context.ProductCategories.AnyAsync(x =&gt; x.Id == request.CategoryId, ct);
+        if (!categoryExists) throw new NotFoundException(nameof(ProductCategory), request.CategoryId);
+
+        var slug = request.Slug?.ToLowerInvariant() ?? request.Name.ToLowerInvariant().Replace(" ", "-");
+
+        var exists = await _context.SubCategories.AnyAsync(x =&gt; x.Slug == slug, ct);
+        if (exists) throw new ConflictException($"SubCategory with slug '{slug}' already exists.");
+
+        var entity = new SubCategory
+        {
+            Name = request.Name,
+            CategoryId = request.CategoryId,
+            Slug = slug,
+            Code = request.Code,
+            ImageUrl = request.ImageUrl,
+            Description = request.Description,
+            Status = request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+        };
+
+        _context.SubCategories.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return SubCategoryDto.FromEntity(entity);
+    }
+}
+
+public class CreateSubCategoryCommandValidator : AbstractValidator&lt;CreateSubCategoryCommand&gt;
+{
+    public CreateSubCategoryCommandValidator()
+    {
+        RuleFor(v =&gt; v.Name).NotEmpty().MaximumLength(200);
+        RuleFor(v =&gt; v.CategoryId).NotEmpty();
+    }
+}</pre>
+  </div>
+
+  <h3>3.4 CreateUnitCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Units/Commands/CreateUnitCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Units.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Units.Commands;
+
+public record CreateUnitCommand : IRequest&lt;UnitDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public string ShortName { get; init; } = string.Empty;
+    public string? Slug { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class CreateUnitCommandHandler : IRequestHandler&lt;CreateUnitCommand, UnitDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public CreateUnitCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;UnitDto&gt; Handle(CreateUnitCommand request, CancellationToken ct)
+    {
+        var slug = request.Slug?.ToLowerInvariant() ?? request.Name.ToLowerInvariant().Replace(" ", "-");
+        var exists = await _context.Units.AnyAsync(x =&gt; x.Slug == slug, ct);
+        if (exists) throw new ConflictException($"Unit with slug '{slug}' already exists.");
+
+        var entity = new Domain.Entities.Unit
+        {
+            Name = request.Name,
+            ShortName = request.ShortName,
+            Slug = slug,
+            Description = request.Description,
+            Status = request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+        };
+
+        _context.Units.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return UnitDto.FromEntity(entity);
+    }
+}
+
+public class CreateUnitCommandValidator : AbstractValidator&lt;CreateUnitCommand&gt;
+{
+    public CreateUnitCommandValidator()
+    {
+        RuleFor(v =&gt; v.Name).NotEmpty().MaximumLength(100);
+        RuleFor(v =&gt; v.ShortName).NotEmpty().MaximumLength(20);
+    }
+}</pre>
+  </div>
+
+  <h3>3.5 CreateWarrantyCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Warranties/Commands/CreateWarrantyCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Warranties.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Warranties.Commands;
+
+public record CreateWarrantyCommand : IRequest&lt;WarrantyDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public int Duration { get; init; }
+    public string? DurationType { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class CreateWarrantyCommandHandler : IRequestHandler&lt;CreateWarrantyCommand, WarrantyDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public CreateWarrantyCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;WarrantyDto&gt; Handle(CreateWarrantyCommand request, CancellationToken ct)
+    {
+        var exists = await _context.Warranties.AnyAsync(x =&gt; x.Name == request.Name, ct);
+        if (exists) throw new ConflictException($"Warranty with name '{request.Name}' already exists.");
+
+        var entity = new Warranty
+        {
+            Name = request.Name,
+            Duration = request.Duration,
+            DurationType = request.DurationType ?? "days",
+            Description = request.Description,
+            Status = request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+        };
+
+        _context.Warranties.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return WarrantyDto.FromEntity(entity);
+    }
+}
+
+public class CreateWarrantyCommandValidator : AbstractValidator&lt;CreateWarrantyCommand&gt;
+{
+    public CreateWarrantyCommandValidator()
+    {
+        RuleFor(v =&gt; v.Name).NotEmpty().MaximumLength(200);
+        RuleFor(v =&gt; v.Duration).GreaterThan(0);
+        RuleFor(v =&gt; v.DurationType).MaximumLength(20);
+    }
+}</pre>
+  </div>
+
+  <h3>3.6 CreateVariantAttributeCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/VariantAttributes/Commands/CreateVariantAttributeCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.VariantAttributes.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.VariantAttributes.Commands;
+
+public record CreateVariantAttributeCommand : IRequest&lt;VariantAttributeDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Slug { get; init; }
+    public JsonDocument? Values { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class CreateVariantAttributeCommandHandler : IRequestHandler&lt;CreateVariantAttributeCommand, VariantAttributeDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public CreateVariantAttributeCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;VariantAttributeDto&gt; Handle(CreateVariantAttributeCommand request, CancellationToken ct)
+    {
+        var slug = request.Slug?.ToLowerInvariant() ?? request.Name.ToLowerInvariant().Replace(" ", "-");
+
+        var exists = await _context.VariantAttributes.AnyAsync(x =&gt; x.Slug == slug, ct);
+        if (exists) throw new ConflictException($"Variant attribute with slug '{slug}' already exists.");
+
+        var entity = new VariantAttribute
+        {
+            Name = request.Name,
+            Slug = slug,
+            Values = request.Values,
+            Description = request.Description,
+            Status = request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+        };
+
+        _context.VariantAttributes.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return VariantAttributeDto.FromEntity(entity);
+    }
+}
+
+public class CreateVariantAttributeCommandValidator : AbstractValidator&lt;CreateVariantAttributeCommand&gt;
+{
+    public CreateVariantAttributeCommandValidator()
+    {
+        RuleFor(v =&gt; v.Name).NotEmpty().MaximumLength(200);
+    }
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 4: Application — Update Commands
+       ============================================================ -->
+  <h2>Layer 4 — Application Layer: Update Commands (6 files)</h2>
+
+  <h3>4.1 UpdateBrandCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Brands/Commands/UpdateBrandCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Brands.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Brands.Commands;
+
+public record UpdateBrandCommand : IRequest&lt;BrandDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public string? Slug { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class UpdateBrandCommandHandler : IRequestHandler&lt;UpdateBrandCommand, BrandDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateBrandCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BrandDto&gt; Handle(UpdateBrandCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Brands.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
+
+        if (request.Name is not null) entity.Name = request.Name;
+        if (request.ImageUrl is not null) entity.ImageUrl = request.ImageUrl;
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s)) entity.Status = s;
+
+        if (request.Slug is not null)
+        {
+            var slug = request.Slug.ToLowerInvariant();
+            var exists = await _context.Brands.AnyAsync(x =&gt; x.Slug == slug &amp;&amp; x.Id != request.Id, ct);
+            if (exists) throw new ConflictException($"Brand with slug '{slug}' already exists.");
+            entity.Slug = slug;
+        }
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return BrandDto.FromEntity(entity);
+    }
+}
+
+public class UpdateBrandCommandValidator : AbstractValidator&lt;UpdateBrandCommand&gt;
+{
+    public UpdateBrandCommandValidator()
+    {
+        RuleFor(v =&gt; v.Id).NotEmpty();
+        RuleFor(v =&gt; v.Name).MaximumLength(200).When(v =&gt; v.Name is not null);
+    }
+}</pre>
+  </div>
+
+  <h3>4.2 UpdateProductCategoryCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/ProductCategories/Commands/UpdateProductCategoryCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.ProductCategories.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.ProductCategories.Commands;
+
+public record UpdateProductCategoryCommand : IRequest&lt;ProductCategoryDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public string? Slug { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class UpdateProductCategoryCommandHandler : IRequestHandler&lt;UpdateProductCategoryCommand, ProductCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateProductCategoryCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;ProductCategoryDto&gt; Handle(UpdateProductCategoryCommand request, CancellationToken ct)
+    {
+        var entity = await _context.ProductCategories.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(ProductCategory), request.Id);
+
+        if (request.Name is not null) entity.Name = request.Name;
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s)) entity.Status = s;
+
+        if (request.Slug is not null)
+        {
+            var slug = request.Slug.ToLowerInvariant();
+            var exists = await _context.ProductCategories.AnyAsync(x =&gt; x.Slug == slug &amp;&amp; x.Id != request.Id, ct);
+            if (exists) throw new ConflictException($"Category with slug '{slug}' already exists.");
+            entity.Slug = slug;
+        }
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return ProductCategoryDto.FromEntity(entity);
+    }
+}
+
+public class UpdateProductCategoryCommandValidator : AbstractValidator&lt;UpdateProductCategoryCommand&gt;
+{
+    public UpdateProductCategoryCommandValidator()
+    {
+        RuleFor(v =&gt; v.Id).NotEmpty();
+        RuleFor(v =&gt; v.Name).MaximumLength(200).When(v =&gt; v.Name is not null);
+    }
+}</pre>
+  </div>
+
+  <h3>4.3 UpdateSubCategoryCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/SubCategories/Commands/UpdateSubCategoryCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.SubCategories.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.SubCategories.Commands;
+
+public record UpdateSubCategoryCommand : IRequest&lt;SubCategoryDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public Guid? CategoryId { get; init; }
+    public string? Slug { get; init; }
+    public string? Code { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class UpdateSubCategoryCommandHandler : IRequestHandler&lt;UpdateSubCategoryCommand, SubCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateSubCategoryCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;SubCategoryDto&gt; Handle(UpdateSubCategoryCommand request, CancellationToken ct)
+    {
+        var entity = await _context.SubCategories.Include(x =&gt; x.Category).FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(SubCategory), request.Id);
+
+        if (request.Name is not null) entity.Name = request.Name;
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.Code is not null) entity.Code = request.Code;
+        if (request.ImageUrl is not null) entity.ImageUrl = request.ImageUrl;
+        if (request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s)) entity.Status = s;
+        if (request.CategoryId.HasValue)
+        {
+            var categoryExists = await _context.ProductCategories.AnyAsync(x =&gt; x.Id == request.CategoryId.Value, ct);
+            if (!categoryExists) throw new NotFoundException(nameof(ProductCategory), request.CategoryId.Value);
+            entity.CategoryId = request.CategoryId.Value;
+        }
+
+        if (request.Slug is not null)
+        {
+            var slug = request.Slug.ToLowerInvariant();
+            var exists = await _context.SubCategories.AnyAsync(x =&gt; x.Slug == slug &amp;&amp; x.Id != request.Id, ct);
+            if (exists) throw new ConflictException($"SubCategory with slug '{slug}' already exists.");
+            entity.Slug = slug;
+        }
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return SubCategoryDto.FromEntity(entity);
+    }
+}
+
+public class UpdateSubCategoryCommandValidator : AbstractValidator&lt;UpdateSubCategoryCommand&gt;
+{
+    public UpdateSubCategoryCommandValidator()
+    {
+        RuleFor(v =&gt; v.Id).NotEmpty();
+        RuleFor(v =&gt; v.Name).MaximumLength(200).When(v =&gt; v.Name is not null);
+    }
+}</pre>
+  </div>
+
+  <h3>4.4 UpdateUnitCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Units/Commands/UpdateUnitCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Units.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Units.Commands;
+
+public record UpdateUnitCommand : IRequest&lt;UnitDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public string? ShortName { get; init; }
+    public string? Slug { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class UpdateUnitCommandHandler : IRequestHandler&lt;UpdateUnitCommand, UnitDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateUnitCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;UnitDto&gt; Handle(UpdateUnitCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Units.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Domain.Entities.Unit), request.Id);
+
+        if (request.Name is not null) entity.Name = request.Name;
+        if (request.ShortName is not null) entity.ShortName = request.ShortName;
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s)) entity.Status = s;
+
+        if (request.Slug is not null)
+        {
+            var slug = request.Slug.ToLowerInvariant();
+            var exists = await _context.Units.AnyAsync(x =&gt; x.Slug == slug &amp;&amp; x.Id != request.Id, ct);
+            if (exists) throw new ConflictException($"Unit with slug '{slug}' already exists.");
+            entity.Slug = slug;
+        }
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return UnitDto.FromEntity(entity);
+    }
+}
+
+public class UpdateUnitCommandValidator : AbstractValidator&lt;UpdateUnitCommand&gt;
+{
+    public UpdateUnitCommandValidator()
+    {
+        RuleFor(v =&gt; v.Id).NotEmpty();
+        RuleFor(v =&gt; v.Name).MaximumLength(100).When(v =&gt; v.Name is not null);
+        RuleFor(v =&gt; v.ShortName).MaximumLength(20).When(v =&gt; v.ShortName is not null);
+    }
+}</pre>
+  </div>
+
+  <h3>4.5 UpdateWarrantyCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Warranties/Commands/UpdateWarrantyCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Warranties.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Warranties.Commands;
+
+public record UpdateWarrantyCommand : IRequest&lt;WarrantyDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public int? Duration { get; init; }
+    public string? DurationType { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class UpdateWarrantyCommandHandler : IRequestHandler&lt;UpdateWarrantyCommand, WarrantyDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateWarrantyCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;WarrantyDto&gt; Handle(UpdateWarrantyCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Warranties.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Warranty), request.Id);
+
+        if (request.Name is not null) entity.Name = request.Name;
+        if (request.Duration is not null) entity.Duration = request.Duration.Value;
+        if (request.DurationType is not null) entity.DurationType = request.DurationType;
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s)) entity.Status = s;
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return WarrantyDto.FromEntity(entity);
+    }
+}
+
+public class UpdateWarrantyCommandValidator : AbstractValidator&lt;UpdateWarrantyCommand&gt;
+{
+    public UpdateWarrantyCommandValidator()
+    {
+        RuleFor(v =&gt; v.Id).NotEmpty();
+        RuleFor(v =&gt; v.Name).MaximumLength(200).When(v =&gt; v.Name is not null);
+    }
+}</pre>
+  </div>
+
+  <h3>4.6 UpdateVariantAttributeCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/VariantAttributes/Commands/UpdateVariantAttributeCommand.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.VariantAttributes.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.VariantAttributes.Commands;
+
+public record UpdateVariantAttributeCommand : IRequest&lt;VariantAttributeDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public string? Slug { get; init; }
+    public JsonDocument? Values { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class UpdateVariantAttributeCommandHandler : IRequestHandler&lt;UpdateVariantAttributeCommand, VariantAttributeDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateVariantAttributeCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;VariantAttributeDto&gt; Handle(UpdateVariantAttributeCommand request, CancellationToken ct)
+    {
+        var entity = await _context.VariantAttributes.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(VariantAttribute), request.Id);
+
+        if (request.Name is not null) entity.Name = request.Name;
+        if (request.Values is not null) entity.Values = request.Values;
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s)) entity.Status = s;
+
+        if (request.Slug is not null)
+        {
+            var slug = request.Slug.ToLowerInvariant();
+            var exists = await _context.VariantAttributes.AnyAsync(x =&gt; x.Slug == slug &amp;&amp; x.Id != request.Id, ct);
+            if (exists) throw new ConflictException($"Variant attribute with slug '{slug}' already exists.");
+            entity.Slug = slug;
+        }
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return VariantAttributeDto.FromEntity(entity);
+    }
+}
+
+public class UpdateVariantAttributeCommandValidator : AbstractValidator&lt;UpdateVariantAttributeCommand&gt;
+{
+    public UpdateVariantAttributeCommandValidator()
+    {
+        RuleFor(v =&gt; v.Id).NotEmpty();
+        RuleFor(v =&gt; v.Name).MaximumLength(200).When(v =&gt; v.Name is not null);
+    }
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 5: Application — Delete Commands
+       ============================================================ -->
+  <h2>Layer 5 — Application Layer: Delete Commands (6 files)</h2>
+
+  <h3>5.1 DeleteBrandCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Brands/Commands/DeleteBrandCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Brands.Commands;
+
+public record DeleteBrandCommand : IRequest
+{
+    public Guid Id { get; init; }
+}
+
+public class DeleteBrandCommandHandler : IRequestHandler&lt;DeleteBrandCommand&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public DeleteBrandCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task Handle(DeleteBrandCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Brands.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
+        _context.Brands.Remove(entity);
+        await _context.SaveChangesAsync(ct);
+    }
+}</pre>
+  </div>
+
+  <h3>5.2 DeleteProductCategoryCommand.cs (returns affected products)</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/ProductCategories/Commands/DeleteProductCategoryCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.ProductCategories.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.ProductCategories.Commands;
+
+public record DeleteProductCategoryCommand : IRequest&lt;DeleteCategoryResponse&gt;
+{
+    public Guid Id { get; init; }
+}
+
+public class DeleteProductCategoryCommandHandler : IRequestHandler&lt;DeleteProductCategoryCommand, DeleteCategoryResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public DeleteProductCategoryCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;DeleteCategoryResponse&gt; Handle(DeleteProductCategoryCommand request, CancellationToken ct)
+    {
+        var entity = await _context.ProductCategories.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(ProductCategory), request.Id);
+
+        var affectedProducts = await _context.Products
+            .Where(p =&gt; p.Category == entity.Name)
+            .Select(p =&gt; new AffectedProduct { Id = p.Id, Name = p.Name, Sku = p.SKU })
+            .ToListAsync(ct);
+
+        _context.ProductCategories.Remove(entity);
+        await _context.SaveChangesAsync(ct);
+
+        return new DeleteCategoryResponse
+        {
+            Message = affectedProducts.Count &gt; 0
+                ? $"Category deleted. {affectedProducts.Count} product(s) are no longer associated with this category."
+                : "Category deleted successfully.",
+            AffectedProducts = affectedProducts,
+        };
+    }
+}</pre>
+  </div>
+
+  <h3>5.3 DeleteSubCategoryCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/SubCategories/Commands/DeleteSubCategoryCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.SubCategories.Commands;
+
+public record DeleteSubCategoryCommand : IRequest
+{
+    public Guid Id { get; init; }
+}
+
+public class DeleteSubCategoryCommandHandler : IRequestHandler&lt;DeleteSubCategoryCommand&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public DeleteSubCategoryCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task Handle(DeleteSubCategoryCommand request, CancellationToken ct)
+    {
+        var entity = await _context.SubCategories.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(SubCategory), request.Id);
+        _context.SubCategories.Remove(entity);
+        await _context.SaveChangesAsync(ct);
+    }
+}</pre>
+  </div>
+
+  <h3>5.4 DeleteUnitCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Units/Commands/DeleteUnitCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Units.Commands;
+
+public record DeleteUnitCommand : IRequest
+{
+    public Guid Id { get; init; }
+}
+
+public class DeleteUnitCommandHandler : IRequestHandler&lt;DeleteUnitCommand&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public DeleteUnitCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task Handle(DeleteUnitCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Units.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Domain.Entities.Unit), request.Id);
+        _context.Units.Remove(entity);
+        await _context.SaveChangesAsync(ct);
+    }
+}</pre>
+  </div>
+
+  <h3>5.5 DeleteWarrantyCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Warranties/Commands/DeleteWarrantyCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Warranties.Commands;
+
+public record DeleteWarrantyCommand : IRequest
+{
+    public Guid Id { get; init; }
+}
+
+public class DeleteWarrantyCommandHandler : IRequestHandler&lt;DeleteWarrantyCommand&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public DeleteWarrantyCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task Handle(DeleteWarrantyCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Warranties.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Warranty), request.Id);
+        _context.Warranties.Remove(entity);
+        await _context.SaveChangesAsync(ct);
+    }
+}</pre>
+  </div>
+
+  <h3>5.6 DeleteVariantAttributeCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/VariantAttributes/Commands/DeleteVariantAttributeCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.VariantAttributes.Commands;
+
+public record DeleteVariantAttributeCommand : IRequest
+{
+    public Guid Id { get; init; }
+}
+
+public class DeleteVariantAttributeCommandHandler : IRequestHandler&lt;DeleteVariantAttributeCommand&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public DeleteVariantAttributeCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task Handle(DeleteVariantAttributeCommand request, CancellationToken ct)
+    {
+        var entity = await _context.VariantAttributes.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(VariantAttribute), request.Id);
+        _context.VariantAttributes.Remove(entity);
+        await _context.SaveChangesAsync(ct);
+    }
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 6: Application — Bulk Delete Commands
+       ============================================================ -->
+  <h2>Layer 6 — Application Layer: Bulk Delete Commands (6 files)</h2>
+
+  <h3>6.1 BulkDeleteBrandsCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Brands/Commands/BulkDeleteBrandsCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+
+namespace OmniBlox.Application.Features.Brands.Commands;
+
+public record BulkDeleteBrandsCommand : IRequest&lt;BulkDeleteResponse&gt;
+{
+    public List&lt;Guid&gt; Ids { get; init; } = [];
+}
+
+public record BulkDeleteResponse
+{
+    public string Message { get; init; } = string.Empty;
+    public List&lt;Guid&gt; Deleted { get; init; } = [];
+    public List&lt;FailedItem&gt; Failed { get; init; } = [];
+}
+
+public record FailedItem
+{
+    public Guid Id { get; init; }
+    public string Error { get; init; } = string.Empty;
+}
+
+public class BulkDeleteBrandsCommandHandler : IRequestHandler&lt;BulkDeleteBrandsCommand, BulkDeleteResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public BulkDeleteBrandsCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BulkDeleteResponse&gt; Handle(BulkDeleteBrandsCommand request, CancellationToken ct)
+    {
+        var deleted = new List&lt;Guid&gt;();
+        var failed = new List&lt;FailedItem&gt;();
+
+        foreach (var id in request.Ids)
+        {
+            var entity = await _context.Brands.FirstOrDefaultAsync(x =&gt; x.Id == id, ct);
+            if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
+            _context.Brands.Remove(entity);
+            deleted.Add(id);
+        }
+
+        await _context.SaveChangesAsync(ct);
+        return new BulkDeleteResponse { Message = $"{deleted.Count} brand(s) deleted, {failed.Count} failed.", Deleted = deleted, Failed = failed };
+    }
+}</pre>
+  </div>
+
+  <h3>6.2 BulkDeleteProductCategoriesCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/ProductCategories/Commands/BulkDeleteProductCategoriesCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.ProductCategories.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.ProductCategories.Commands;
+
+public record BulkDeleteProductCategoriesCommand : IRequest&lt;BulkDeleteResponse&gt;
+{
+    public List&lt;Guid&gt; Ids { get; init; } = [];
+}
+
+public class BulkDeleteProductCategoriesCommandHandler : IRequestHandler&lt;BulkDeleteProductCategoriesCommand, BulkDeleteResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public BulkDeleteProductCategoriesCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BulkDeleteResponse&gt; Handle(BulkDeleteProductCategoriesCommand request, CancellationToken ct)
+    {
+        var deleted = new List&lt;Guid&gt;();
+        var failed = new List&lt;FailedItem&gt;();
+
+        foreach (var id in request.Ids)
+        {
+            var entity = await _context.ProductCategories.FirstOrDefaultAsync(x =&gt; x.Id == id, ct);
+            if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
+            _context.ProductCategories.Remove(entity);
+            deleted.Add(id);
+        }
+
+        await _context.SaveChangesAsync(ct);
+        return new BulkDeleteResponse
+        {
+            Message = $"{deleted.Count} category(s) deleted, {failed.Count} failed.",
+            Deleted = deleted, Failed = failed,
+        };
+    }
+}</pre>
+  </div>
+
+  <h3>6.3 BulkDeleteSubCategoriesCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/SubCategories/Commands/BulkDeleteSubCategoriesCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.SubCategories.Commands;
+
+public record BulkDeleteSubCategoriesCommand : IRequest&lt;BulkDeleteResponse&gt;
+{
+    public List&lt;Guid&gt; Ids { get; init; } = [];
+}
+
+public record BulkDeleteResponse
+{
+    public string Message { get; init; } = string.Empty;
+    public List&lt;Guid&gt; Deleted { get; init; } = [];
+    public List&lt;FailedItem&gt; Failed { get; init; } = [];
+}
+
+public record FailedItem
+{
+    public Guid Id { get; init; }
+    public string Error { get; init; } = string.Empty;
+}
+
+public class BulkDeleteSubCategoriesCommandHandler : IRequestHandler&lt;BulkDeleteSubCategoriesCommand, BulkDeleteResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public BulkDeleteSubCategoriesCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BulkDeleteResponse&gt; Handle(BulkDeleteSubCategoriesCommand request, CancellationToken ct)
+    {
+        var deleted = new List&lt;Guid&gt;();
+        var failed = new List&lt;FailedItem&gt;();
+
+        foreach (var id in request.Ids)
+        {
+            var entity = await _context.SubCategories.FirstOrDefaultAsync(x =&gt; x.Id == id, ct);
+            if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
+            _context.SubCategories.Remove(entity);
+            deleted.Add(id);
+        }
+
+        await _context.SaveChangesAsync(ct);
+        return new BulkDeleteResponse
+        {
+            Message = $"{deleted.Count} sub-category(s) deleted, {failed.Count} failed.",
+            Deleted = deleted, Failed = failed,
+        };
+    }
+}</pre>
+  </div>
+
+  <h3>6.4 BulkDeleteUnitsCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Units/Commands/BulkDeleteUnitsCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+
+namespace OmniBlox.Application.Features.Units.Commands;
+
+public record BulkDeleteUnitsCommand : IRequest&lt;BulkDeleteResponse&gt;
+{
+    public List&lt;Guid&gt; Ids { get; init; } = [];
+}
+
+public record BulkDeleteResponse
+{
+    public string Message { get; init; } = string.Empty;
+    public List&lt;Guid&gt; Deleted { get; init; } = [];
+    public List&lt;FailedItem&gt; Failed { get; init; } = [];
+}
+
+public record FailedItem
+{
+    public Guid Id { get; init; }
+    public string Error { get; init; } = string.Empty;
+}
+
+public class BulkDeleteUnitsCommandHandler : IRequestHandler&lt;BulkDeleteUnitsCommand, BulkDeleteResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public BulkDeleteUnitsCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BulkDeleteResponse&gt; Handle(BulkDeleteUnitsCommand request, CancellationToken ct)
+    {
+        var deleted = new List&lt;Guid&gt;();
+        var failed = new List&lt;FailedItem&gt;();
+        foreach (var id in request.Ids)
+        {
+            var entity = await _context.Units.FirstOrDefaultAsync(x =&gt; x.Id == id, ct);
+            if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
+            _context.Units.Remove(entity);
+            deleted.Add(id);
+            deleted.Add(id);
+        }
+        await _context.SaveChangesAsync(ct);
+        return new BulkDeleteResponse { Message = $"{deleted.Count} unit(s) deleted, {failed.Count} failed.", Deleted = deleted, Failed = failed };
+    }
+}</pre>
+  </div>
+
+  <h3>6.5 BulkDeleteWarrantiesCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Warranties/Commands/BulkDeleteWarrantiesCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+
+namespace OmniBlox.Application.Features.Warranties.Commands;
+
+public record BulkDeleteWarrantiesCommand : IRequest&lt;BulkDeleteResponse&gt;
+{
+    public List&lt;Guid&gt; Ids { get; init; } = [];
+}
+
+public record BulkDeleteResponse
+{
+    public string Message { get; init; } = string.Empty;
+    public List&lt;Guid&gt; Deleted { get; init; } = [];
+    public List&lt;FailedItem&gt; Failed { get; init; } = [];
+}
+
+public record FailedItem
+{
+    public Guid Id { get; init; }
+    public string Error { get; init; } = string.Empty;
+}
+
+public class BulkDeleteWarrantiesCommandHandler : IRequestHandler&lt;BulkDeleteWarrantiesCommand, BulkDeleteResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public BulkDeleteWarrantiesCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BulkDeleteResponse&gt; Handle(BulkDeleteWarrantiesCommand request, CancellationToken ct)
+    {
+        var deleted = new List&lt;Guid&gt;();
+        var failed = new List&lt;FailedItem&gt;();
+        foreach (var id in request.Ids)
+        {
+            var entity = await _context.Warranties.FirstOrDefaultAsync(x =&gt; x.Id == id, ct);
+            if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
+            _context.Warranties.Remove(entity);
+            deleted.Add(id);
+        }
+        await _context.SaveChangesAsync(ct);
+        return new BulkDeleteResponse { Message = $"{deleted.Count} warranty(ies) deleted, {failed.Count} failed.", Deleted = deleted, Failed = failed };
+    }
+}</pre>
+  </div>
+
+  <h3>6.6 BulkDeleteVariantAttributesCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/VariantAttributes/Commands/BulkDeleteVariantAttributesCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+
+namespace OmniBlox.Application.Features.VariantAttributes.Commands;
+
+public record BulkDeleteVariantAttributesCommand : IRequest&lt;BulkDeleteResponse&gt;
+{
+    public List&lt;Guid&gt; Ids { get; init; } = [];
+}
+
+public record BulkDeleteResponse
+{
+    public string Message { get; init; } = string.Empty;
+    public List&lt;Guid&gt; Deleted { get; init; } = [];
+    public List&lt;FailedItem&gt; Failed { get; init; } = [];
+}
+
+public record FailedItem
+{
+    public Guid Id { get; init; }
+    public string Error { get; init; } = string.Empty;
+}
+
+public class BulkDeleteVariantAttributesCommandHandler : IRequestHandler&lt;BulkDeleteVariantAttributesCommand, BulkDeleteResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public BulkDeleteVariantAttributesCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BulkDeleteResponse&gt; Handle(BulkDeleteVariantAttributesCommand request, CancellationToken ct)
+    {
+        var deleted = new List&lt;Guid&gt;();
+        var failed = new List&lt;FailedItem&gt;();
+        foreach (var id in request.Ids)
+        {
+            var entity = await _context.VariantAttributes.FirstOrDefaultAsync(x =&gt; x.Id == id, ct);
+            if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
+            _context.VariantAttributes.Remove(entity);
+            deleted.Add(id);
+        }
+        await _context.SaveChangesAsync(ct);
+        return new BulkDeleteResponse { Message = $"{deleted.Count} attribute(s) deleted, {failed.Count} failed.", Deleted = deleted, Failed = failed };
+    }
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 7: Application — GetList Queries
+       ============================================================ -->
+  <h2>Layer 7 — Application Layer: GetList Queries (6 files)</h2>
+
+  <h3>7.1 GetBrandsQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Brands/Queries/GetBrandsQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Brands.DTOs;
+
+namespace OmniBlox.Application.Features.Brands.Queries;
+
+public record GetBrandsQuery : IRequest&lt;List&lt;BrandDto&gt;&gt;;
+
+public class GetBrandsQueryHandler : IRequestHandler&lt;GetBrandsQuery, List&lt;BrandDto&gt;&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetBrandsQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;List&lt;BrandDto&gt;&gt; Handle(GetBrandsQuery request, CancellationToken ct)
+    {
+        var items = await _context.Brands.OrderBy(x =&gt; x.Name).ToListAsync(ct);
+        return items.Select(BrandDto.FromEntity).ToList();
+    }
+}</pre>
+  </div>
+
+  <h3>7.2 GetProductCategoriesQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/ProductCategories/Queries/GetProductCategoriesQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.ProductCategories.DTOs;
+
+namespace OmniBlox.Application.Features.ProductCategories.Queries;
+
+public record GetProductCategoriesQuery : IRequest&lt;List&lt;ProductCategoryDto&gt;&gt;;
+
+public class GetProductCategoriesQueryHandler : IRequestHandler&lt;GetProductCategoriesQuery, List&lt;ProductCategoryDto&gt;&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetProductCategoriesQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;List&lt;ProductCategoryDto&gt;&gt; Handle(GetProductCategoriesQuery request, CancellationToken ct)
+    {
+        var items = await _context.ProductCategories
+            .OrderBy(x =&gt; x.Name)
+            .ToListAsync(ct);
+        return items.Select(ProductCategoryDto.FromEntity).ToList();
+    }
+}</pre>
+  </div>
+
+  <h3>7.3 GetSubCategoriesQuery.cs (with optional category filter)</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/SubCategories/Queries/GetSubCategoriesQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.SubCategories.DTOs;
+
+namespace OmniBlox.Application.Features.SubCategories.Queries;
+
+public record GetSubCategoriesQuery : IRequest&lt;List&lt;SubCategoryDto&gt;&gt;
+{
+    public Guid? CategoryId { get; init; }
+}
+
+public class GetSubCategoriesQueryHandler : IRequestHandler&lt;GetSubCategoriesQuery, List&lt;SubCategoryDto&gt;&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetSubCategoriesQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;List&lt;SubCategoryDto&gt;&gt; Handle(GetSubCategoriesQuery request, CancellationToken ct)
+    {
+        var query = _context.SubCategories
+            .Include(x =&gt; x.Category)
+            .AsQueryable();
+
+        if (request.CategoryId.HasValue)
+            query = query.Where(x =&gt; x.CategoryId == request.CategoryId.Value);
+
+        var items = await query.OrderBy(x =&gt; x.Name).ToListAsync(ct);
+        return items.Select(SubCategoryDto.FromEntity).ToList();
+    }
+}</pre>
+  </div>
+
+  <h3>7.4 GetUnitsQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Units/Queries/GetUnitsQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Units.DTOs;
+
+namespace OmniBlox.Application.Features.Units.Queries;
+
+public record GetUnitsQuery : IRequest&lt;List&lt;UnitDto&gt;&gt;;
+
+public class GetUnitsQueryHandler : IRequestHandler&lt;GetUnitsQuery, List&lt;UnitDto&gt;&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetUnitsQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;List&lt;UnitDto&gt;&gt; Handle(GetUnitsQuery request, CancellationToken ct)
+    {
+        var items = await _context.Units.OrderBy(x =&gt; x.Name).ToListAsync(ct);
+        return items.Select(UnitDto.FromEntity).ToList();
+    }
+}</pre>
+  </div>
+
+  <h3>7.5 GetWarrantiesQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Warranties/Queries/GetWarrantiesQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Warranties.DTOs;
+
+namespace OmniBlox.Application.Features.Warranties.Queries;
+
+public record GetWarrantiesQuery : IRequest&lt;List&lt;WarrantyDto&gt;&gt;;
+
+public class GetWarrantiesQueryHandler : IRequestHandler&lt;GetWarrantiesQuery, List&lt;WarrantyDto&gt;&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetWarrantiesQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;List&lt;WarrantyDto&gt;&gt; Handle(GetWarrantiesQuery request, CancellationToken ct)
+    {
+        var items = await _context.Warranties.OrderBy(x =&gt; x.Name).ToListAsync(ct);
+        return items.Select(WarrantyDto.FromEntity).ToList();
+    }
+}</pre>
+  </div>
+
+  <h3>7.6 GetVariantAttributesQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/VariantAttributes/Queries/GetVariantAttributesQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.VariantAttributes.DTOs;
+
+namespace OmniBlox.Application.Features.VariantAttributes.Queries;
+
+public record GetVariantAttributesQuery : IRequest&lt;List&lt;VariantAttributeDto&gt;&gt;;
+
+public class GetVariantAttributesQueryHandler : IRequestHandler&lt;GetVariantAttributesQuery, List&lt;VariantAttributeDto&gt;&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetVariantAttributesQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;List&lt;VariantAttributeDto&gt;&gt; Handle(GetVariantAttributesQuery request, CancellationToken ct)
+    {
+        var items = await _context.VariantAttributes.OrderBy(x =&gt; x.Name).ToListAsync(ct);
+        return items.Select(VariantAttributeDto.FromEntity).ToList();
+    }
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 8: Application — GetById Queries
+       ============================================================ -->
+  <h2>Layer 8 — Application Layer: GetById Queries (6 files)</h2>
+
+  <h3>8.1 GetBrandByIdQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Brands/Queries/GetBrandByIdQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Brands.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Brands.Queries;
+
+public record GetBrandByIdQuery : IRequest&lt;BrandDto&gt;
+{
+    public Guid Id { get; init; }
+}
+
+public class GetBrandByIdQueryHandler : IRequestHandler&lt;GetBrandByIdQuery, BrandDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetBrandByIdQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BrandDto&gt; Handle(GetBrandByIdQuery request, CancellationToken ct)
+    {
+        var entity = await _context.Brands.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
+        return BrandDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <h3>8.2 GetProductCategoryByIdQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/ProductCategories/Queries/GetProductCategoryByIdQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.ProductCategories.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.ProductCategories.Queries;
+
+public record GetProductCategoryByIdQuery : IRequest&lt;ProductCategoryDto&gt;
+{
+    public Guid Id { get; init; }
+}
+
+public class GetProductCategoryByIdQueryHandler : IRequestHandler&lt;GetProductCategoryByIdQuery, ProductCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetProductCategoryByIdQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;ProductCategoryDto&gt; Handle(GetProductCategoryByIdQuery request, CancellationToken ct)
+    {
+        var entity = await _context.ProductCategories.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(ProductCategory), request.Id);
+        return ProductCategoryDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <h3>8.3 GetSubCategoryByIdQuery.cs (includes Category navigation)</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/SubCategories/Queries/GetSubCategoryByIdQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.SubCategories.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.SubCategories.Queries;
+
+public record GetSubCategoryByIdQuery : IRequest&lt;SubCategoryDto&gt;
+{
+    public Guid Id { get; init; }
+}
+
+public class GetSubCategoryByIdQueryHandler : IRequestHandler&lt;GetSubCategoryByIdQuery, SubCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetSubCategoryByIdQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;SubCategoryDto&gt; Handle(GetSubCategoryByIdQuery request, CancellationToken ct)
+    {
+        var entity = await _context.SubCategories.Include(x =&gt; x.Category).FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(SubCategory), request.Id);
+        return SubCategoryDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <h3>8.4 GetUnitByIdQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Units/Queries/GetUnitByIdQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Units.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Units.Queries;
+
+public record GetUnitByIdQuery : IRequest&lt;UnitDto&gt;
+{
+    public Guid Id { get; init; }
+}
+
+public class GetUnitByIdQueryHandler : IRequestHandler&lt;GetUnitByIdQuery, UnitDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetUnitByIdQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;UnitDto&gt; Handle(GetUnitByIdQuery request, CancellationToken ct)
+    {
+        var entity = await _context.Units.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Domain.Entities.Unit), request.Id);
+        return UnitDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <h3>8.5 GetWarrantyByIdQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Warranties/Queries/GetWarrantyByIdQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Warranties.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Warranties.Queries;
+
+public record GetWarrantyByIdQuery : IRequest&lt;WarrantyDto&gt;
+{
+    public Guid Id { get; init; }
+}
+
+public class GetWarrantyByIdQueryHandler : IRequestHandler&lt;GetWarrantyByIdQuery, WarrantyDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetWarrantyByIdQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;WarrantyDto&gt; Handle(GetWarrantyByIdQuery request, CancellationToken ct)
+    {
+        var entity = await _context.Warranties.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Warranty), request.Id);
+        return WarrantyDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <h3>8.6 GetVariantAttributeByIdQuery.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/VariantAttributes/Queries/GetVariantAttributeByIdQuery.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.VariantAttributes.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.VariantAttributes.Queries;
+
+public record GetVariantAttributeByIdQuery : IRequest&lt;VariantAttributeDto&gt;
+{
+    public Guid Id { get; init; }
+}
+
+public class GetVariantAttributeByIdQueryHandler : IRequestHandler&lt;GetVariantAttributeByIdQuery, VariantAttributeDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetVariantAttributeByIdQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;VariantAttributeDto&gt; Handle(GetVariantAttributeByIdQuery request, CancellationToken ct)
+    {
+        var entity = await _context.VariantAttributes.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(VariantAttribute), request.Id);
+        return VariantAttributeDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 9: Application — Products Extended
+       ============================================================ -->
+  <h2>Layer 9 — Application Layer: Products Extended (1 file)</h2>
+
+  <h3>9.1 UpdateStockCommand.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/Features/Products/Commands/UpdateStockCommand.cs</div>
+    <pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Products.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Products.Commands;
+
+public record UpdateStockCommand : IRequest&lt;ProductDto&gt;
+{
+    public Guid Id { get; init; }
+    public int Quantity { get; init; }
+    public string Operation { get; init; } = "add";
+}
+
+public class UpdateStockCommandHandler : IRequestHandler&lt;UpdateStockCommand, ProductDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateStockCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;ProductDto&gt; Handle(UpdateStockCommand request, CancellationToken ct)
+    {
+        var product = await _context.Products.FirstOrDefaultAsync(p =&gt; p.Id == request.Id, ct);
+        if (product is null) throw new NotFoundException(nameof(Product), request.Id);
+
+        product.Stock = request.Operation.ToLower() switch
+        {
+            "add" =&gt; product.Stock + request.Quantity,
+            "subtract" =&gt; product.Stock - request.Quantity,
+            _ =&gt; throw new ArgumentException("Operation must be 'add' or 'subtract'"),
+        };
+
+        if (product.Stock &lt; 0) product.Stock = 0;
+        product.UpdatedAt = DateTime.UtcNow;
+
+        _context.StockLedgerEntries.Add(new StockLedgerEntry
+        {
+            ProductId = product.Id,
+            Quantity = request.Operation.ToLower() == "add" ? request.Quantity : -request.Quantity,
+            Balance = product.Stock,
+            Type = request.Operation.ToUpper(),
+            Reference = $"Stock {request.Operation}",
+        });
+
+        await _context.SaveChangesAsync(ct);
+        return ProductDto.FromEntity(product);
+    }
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 10: API Layer — Controllers (7 files)
+       ============================================================ -->
+  <h2>Layer 10 — API Layer: Controllers (7 files)</h2>
+
+  <h3>10.1 BrandsController.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Api/Controllers/BrandsController.cs</div>
+    <pre>using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.Brands.Commands;
+using OmniBlox.Application.Features.Brands.DTOs;
+using OmniBlox.Application.Features.Brands.Queries;
+
+namespace OmniBlox.Api.Controllers;
+
+[Route("brands")]
+[Authorize]
+[ApiController]
+public class BrandsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    public BrandsController(IMediator mediator) =&gt; _mediator = mediator;
+
+    [HttpGet]
+    public async Task&lt;ActionResult&lt;List&lt;BrandDto&gt;&gt;&gt; GetAll(CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetBrandsQuery(), ct));
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;ActionResult&lt;BrandDto&gt;&gt; GetById(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetBrandByIdQuery { Id = id }, ct));
+
+    [HttpPost]
+    public async Task&lt;ActionResult&lt;BrandDto&gt;&gt; Create(CreateBrandRequest request, CancellationToken ct)
+    {
+        var command = new CreateBrandCommand
+        {
+            Name = request.Name, Slug = request.Slug,
+            ImageUrl = request.ImageUrl, Description = request.Description,
+            Status = request.Status,
+        };
+        var result = await _mediator.Send(command, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;ActionResult&lt;BrandDto&gt;&gt; Update(Guid id, UpdateBrandRequest request, CancellationToken ct)
+    {
+        var command = new UpdateBrandCommand
+        {
+            Id = id, Name = request.Name, Slug = request.Slug,
+            ImageUrl = request.ImageUrl, Description = request.Description,
+            Status = request.Status,
+        };
+        return Ok(await _mediator.Send(command, ct));
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;ActionResult&gt; Delete(Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(new DeleteBrandCommand { Id = id }, ct);
+        return NoContent();
+    }
+
+    [HttpPost("bulk-delete")]
+    public async Task&lt;ActionResult&lt;BulkDeleteResponse&gt;&gt; BulkDelete([FromBody] BulkDeleteRequest request, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new BulkDeleteBrandsCommand { Ids = request.Ids }, ct));
+}</pre>
+  </div>
+
+  <h3>10.2 ProductCategoriesController.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Api/Controllers/ProductCategoriesController.cs</div>
+    <pre>using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.ProductCategories.Commands;
+using OmniBlox.Application.Features.ProductCategories.DTOs;
+using OmniBlox.Application.Features.ProductCategories.Queries;
+
+namespace OmniBlox.Api.Controllers;
+
+[Route("product-categories")]
+[Authorize]
+[ApiController]
+public class ProductCategoriesController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    public ProductCategoriesController(IMediator mediator) =&gt; _mediator = mediator;
+
+    [HttpGet]
+    public async Task&lt;ActionResult&lt;List&lt;ProductCategoryDto&gt;&gt;&gt; GetAll(CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetProductCategoriesQuery(), ct));
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;ActionResult&lt;ProductCategoryDto&gt;&gt; GetById(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetProductCategoryByIdQuery { Id = id }, ct));
+
+    [HttpPost]
+    public async Task&lt;ActionResult&lt;ProductCategoryDto&gt;&gt; Create(CreateProductCategoryRequest request, CancellationToken ct)
+    {
+        var command = new CreateProductCategoryCommand
+        {
+            Name = request.Name, Slug = request.Slug,
+            Description = request.Description, Status = request.Status,
+        };
+        var result = await _mediator.Send(command, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;ActionResult&lt;ProductCategoryDto&gt;&gt; Update(Guid id, UpdateProductCategoryRequest request, CancellationToken ct)
+    {
+        var command = new UpdateProductCategoryCommand
+        {
+            Id = id, Name = request.Name, Slug = request.Slug,
+            Description = request.Description, Status = request.Status,
+        };
+        return Ok(await _mediator.Send(command, ct));
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;ActionResult&lt;DeleteCategoryResponse&gt;&gt; Delete(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new DeleteProductCategoryCommand { Id = id }, ct));
+
+    [HttpPost("bulk-delete")]
+    public async Task&lt;ActionResult&lt;BulkDeleteResponse&gt;&gt; BulkDelete([FromBody] BulkDeleteRequest request, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new BulkDeleteProductCategoriesCommand { Ids = request.Ids }, ct));
+}
+
+public record BulkDeleteRequest
+{
+    public List&lt;Guid&gt; Ids { get; init; } = [];
+}</pre>
+  </div>
+
+  <h3>10.3 SubCategoriesController.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Api/Controllers/SubCategoriesController.cs</div>
+    <pre>using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.SubCategories.Commands;
+using OmniBlox.Application.Features.SubCategories.DTOs;
+using OmniBlox.Application.Features.SubCategories.Queries;
+
+namespace OmniBlox.Api.Controllers;
+
+[Route("sub-categories")]
+[Authorize]
+[ApiController]
+public class SubCategoriesController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    public SubCategoriesController(IMediator mediator) =&gt; _mediator = mediator;
+
+    [HttpGet]
+    public async Task&lt;ActionResult&lt;List&lt;SubCategoryDto&gt;&gt;&gt; GetAll([FromQuery] Guid? categoryId, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetSubCategoriesQuery { CategoryId = categoryId }, ct));
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;ActionResult&lt;SubCategoryDto&gt;&gt; GetById(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetSubCategoryByIdQuery { Id = id }, ct));
+
+    [HttpPost]
+    public async Task&lt;ActionResult&lt;SubCategoryDto&gt;&gt; Create(CreateSubCategoryRequest request, CancellationToken ct)
+    {
+        var command = new CreateSubCategoryCommand
+        {
+            Name = request.Name, CategoryId = request.CategoryId,
+            Slug = request.Slug, Code = request.Code,
+            ImageUrl = request.ImageUrl, Description = request.Description,
+            Status = request.Status,
+        };
+        var result = await _mediator.Send(command, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;ActionResult&lt;SubCategoryDto&gt;&gt; Update(Guid id, UpdateSubCategoryRequest request, CancellationToken ct)
+    {
+        var command = new UpdateSubCategoryCommand
+        {
+            Id = id, Name = request.Name, CategoryId = request.CategoryId,
+            Slug = request.Slug, Code = request.Code,
+            ImageUrl = request.ImageUrl, Description = request.Description,
+            Status = request.Status,
+        };
+        return Ok(await _mediator.Send(command, ct));
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;ActionResult&gt; Delete(Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(new DeleteSubCategoryCommand { Id = id }, ct);
+        return NoContent();
+    }
+
+    [HttpPost("bulk-delete")]
+    public async Task&lt;ActionResult&lt;BulkDeleteResponse&gt;&gt; BulkDelete([FromBody] BulkDeleteRequest request, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new BulkDeleteSubCategoriesCommand { Ids = request.Ids }, ct));
+}</pre>
+  </div>
+
+  <h3>10.4 UnitsController.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Api/Controllers/UnitsController.cs</div>
+    <pre>using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.Units.Commands;
+using OmniBlox.Application.Features.Units.DTOs;
+using OmniBlox.Application.Features.Units.Queries;
+
+namespace OmniBlox.Api.Controllers;
+
+[Route("units")]
+[Authorize]
+[ApiController]
+public class UnitsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    public UnitsController(IMediator mediator) =&gt; _mediator = mediator;
+
+    [HttpGet]
+    public async Task&lt;ActionResult&lt;List&lt;UnitDto&gt;&gt;&gt; GetAll(CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetUnitsQuery(), ct));
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;ActionResult&lt;UnitDto&gt;&gt; GetById(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetUnitByIdQuery { Id = id }, ct));
+
+    [HttpPost]
+    public async Task&lt;ActionResult&lt;UnitDto&gt;&gt; Create(CreateUnitRequest request, CancellationToken ct)
+    {
+        var command = new CreateUnitCommand
+        {
+            Name = request.Name, ShortName = request.ShortName,
+            Slug = request.Slug, Description = request.Description,
+            Status = request.Status,
+        };
+        var result = await _mediator.Send(command, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;ActionResult&lt;UnitDto&gt;&gt; Update(Guid id, UpdateUnitRequest request, CancellationToken ct)
+    {
+        var command = new UpdateUnitCommand
+        {
+            Id = id, Name = request.Name, ShortName = request.ShortName,
+            Slug = request.Slug, Description = request.Description,
+            Status = request.Status,
+        };
+        return Ok(await _mediator.Send(command, ct));
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;ActionResult&gt; Delete(Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(new DeleteUnitCommand { Id = id }, ct);
+        return NoContent();
+    }
+
+    [HttpPost("bulk-delete")]
+    public async Task&lt;ActionResult&lt;BulkDeleteResponse&gt;&gt; BulkDelete([FromBody] BulkDeleteRequest request, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new BulkDeleteUnitsCommand { Ids = request.Ids }, ct));
+}</pre>
+  </div>
+
+  <h3>10.5 WarrantiesController.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Api/Controllers/WarrantiesController.cs</div>
+    <pre>using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.Warranties.Commands;
+using OmniBlox.Application.Features.Warranties.DTOs;
+using OmniBlox.Application.Features.Warranties.Queries;
+
+namespace OmniBlox.Api.Controllers;
+
+[Route("warranties")]
+[Authorize]
+[ApiController]
+public class WarrantiesController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    public WarrantiesController(IMediator mediator) =&gt; _mediator = mediator;
+
+    [HttpGet]
+    public async Task&lt;ActionResult&lt;List&lt;WarrantyDto&gt;&gt;&gt; GetAll(CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetWarrantiesQuery(), ct));
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;ActionResult&lt;WarrantyDto&gt;&gt; GetById(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetWarrantyByIdQuery { Id = id }, ct));
+
+    [HttpPost]
+    public async Task&lt;ActionResult&lt;WarrantyDto&gt;&gt; Create(CreateWarrantyRequest request, CancellationToken ct)
+    {
+        var command = new CreateWarrantyCommand
+        {
+            Name = request.Name, Duration = request.Duration,
+            DurationType = request.DurationType, Description = request.Description,
+            Status = request.Status,
+        };
+        var result = await _mediator.Send(command, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;ActionResult&lt;WarrantyDto&gt;&gt; Update(Guid id, UpdateWarrantyRequest request, CancellationToken ct)
+    {
+        var command = new UpdateWarrantyCommand
+        {
+            Id = id, Name = request.Name, Duration = request.Duration,
+            DurationType = request.DurationType, Description = request.Description,
+            Status = request.Status,
+        };
+        return Ok(await _mediator.Send(command, ct));
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;ActionResult&gt; Delete(Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(new DeleteWarrantyCommand { Id = id }, ct);
+        return NoContent();
+    }
+
+    [HttpPost("bulk-delete")]
+    public async Task&lt;ActionResult&lt;BulkDeleteResponse&gt;&gt; BulkDelete([FromBody] BulkDeleteRequest request, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new BulkDeleteWarrantiesCommand { Ids = request.Ids }, ct));
+}</pre>
+  </div>
+
+  <h3>10.6 VariantAttributesController.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Api/Controllers/VariantAttributesController.cs</div>
+    <pre>using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.VariantAttributes.Commands;
+using OmniBlox.Application.Features.VariantAttributes.DTOs;
+using OmniBlox.Application.Features.VariantAttributes.Queries;
+
+namespace OmniBlox.Api.Controllers;
+
+[Route("variant-attributes")]
+[Authorize]
+[ApiController]
+public class VariantAttributesController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    public VariantAttributesController(IMediator mediator) =&gt; _mediator = mediator;
+
+    [HttpGet]
+    public async Task&lt;ActionResult&lt;List&lt;VariantAttributeDto&gt;&gt;&gt; GetAll(CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetVariantAttributesQuery(), ct));
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;ActionResult&lt;VariantAttributeDto&gt;&gt; GetById(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetVariantAttributeByIdQuery { Id = id }, ct));
+
+    [HttpPost]
+    public async Task&lt;ActionResult&lt;VariantAttributeDto&gt;&gt; Create(CreateVariantAttributeRequest request, CancellationToken ct)
+    {
+        var command = new CreateVariantAttributeCommand
+        {
+            Name = request.Name, Slug = request.Slug,
+            Values = request.Values, Description = request.Description,
+            Status = request.Status,
+        };
+        var result = await _mediator.Send(command, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;ActionResult&lt;VariantAttributeDto&gt;&gt; Update(Guid id, UpdateVariantAttributeRequest request, CancellationToken ct)
+    {
+        var command = new UpdateVariantAttributeCommand
+        {
+            Id = id, Name = request.Name, Slug = request.Slug,
+            Values = request.Values, Description = request.Description,
+            Status = request.Status,
+        };
+        return Ok(await _mediator.Send(command, ct));
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;ActionResult&gt; Delete(Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(new DeleteVariantAttributeCommand { Id = id }, ct);
+        return NoContent();
+    }
+
+    [HttpPost("bulk-delete")]
+    public async Task&lt;ActionResult&lt;BulkDeleteResponse&gt;&gt; BulkDelete([FromBody] BulkDeleteRequest request, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new BulkDeleteVariantAttributesCommand { Ids = request.Ids }, ct));
+}</pre>
+  </div>
+
+  <h3>10.7 ProductsController.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Api/Controllers/ProductsController.cs</div>
+    <pre>using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.Brands.DTOs;
+using OmniBlox.Application.Features.Brands.Queries;
+using OmniBlox.Application.Features.Products.Commands;
+using OmniBlox.Application.Features.Products.DTOs;
+using OmniBlox.Application.Features.Products.Queries;
+
+namespace OmniBlox.Api.Controllers;
+
+[Route("products")]
+[Authorize]
+[ApiController]
+public class ProductsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    public ProductsController(IMediator mediator) =&gt; _mediator = mediator;
+
+    [HttpPost]
+    public async Task&lt;ActionResult&lt;ProductDto&gt;&gt; Create(CreateProductRequest request, CancellationToken ct)
+    {
+        var command = new CreateProductCommand
+        {
+            Name = request.Name, SKU = request.SKU,
+            Description = request.Description, Type = request.Type ?? "STANDARD",
+            Category = request.Category, SubCategory = request.SubCategory,
+            Brand = request.Brand, Unit = request.Unit,
+            ImageUrl = request.ImageUrl,
+            SalePrice = request.SalePrice, CostPrice = request.CostPrice,
+            Stock = request.Stock, ReorderLevel = request.ReorderLevel,
+            Status = request.Status ?? "ACTIVE",
+            BarcodeSymbology = request.BarcodeSymbology,
+            TaxRate = request.TaxRate, AlertQuantity = request.AlertQuantity,
+            ItemCode = request.ItemCode, Manufacturer = request.Manufacturer,
+            Warranty = request.Warranty,
+            ManufacturedDate = request.ManufacturedDate,
+            ExpiryDate = request.ExpiryDate,
+        };
+        var result = await _mediator.Send(command, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;ActionResult&lt;ProductDto&gt;&gt; GetById(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetProductQuery { Id = id }, ct));
+
+    [HttpGet("sku/{sku}")]
+    public async Task&lt;ActionResult&lt;ProductDto&gt;&gt; GetBySku(string sku, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetProductBySkuQuery { Sku = sku }, ct));
+
+    [HttpGet]
+    public async Task&lt;ActionResult&lt;ProductListResponse&gt;&gt; GetAll(
+        CancellationToken ct,
+        [FromQuery] int page = 1, [FromQuery] int limit = 20,
+        [FromQuery] string? search = null, [FromQuery] string? category = null,
+        [FromQuery] string? status = null)
+    {
+        return Ok(await _mediator.Send(new GetProductsQuery
+        {
+            Page = page, Limit = limit, Search = search,
+            Category = category, Status = status,
+        }, ct));
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;ActionResult&lt;ProductDto&gt;&gt; Update(Guid id, UpdateProductRequest request, CancellationToken ct)
+    {
+        var command = new UpdateProductCommand
+        {
+            Id = id, Name = request.Name, SKU = request.SKU,
+            Description = request.Description, Type = request.Type,
+            Category = request.Category, SubCategory = request.SubCategory,
+            Brand = request.Brand, Unit = request.Unit, ImageUrl = request.ImageUrl,
+            SalePrice = request.SalePrice, CostPrice = request.CostPrice,
+            Stock = request.Stock, ReorderLevel = request.ReorderLevel,
+            Status = request.Status, BarcodeSymbology = request.BarcodeSymbology,
+            TaxRate = request.TaxRate, AlertQuantity = request.AlertQuantity,
+            ItemCode = request.ItemCode, Manufacturer = request.Manufacturer,
+            Warranty = request.Warranty,
+            ManufacturedDate = request.ManufacturedDate,
+            ExpiryDate = request.ExpiryDate,
+        };
+        return Ok(await _mediator.Send(command, ct));
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;ActionResult&gt; Delete(Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(new DeleteProductCommand { Id = id }, ct);
+        return NoContent();
+    }
+
+    [HttpPut("{id:guid}/stock")]
+    public async Task&lt;ActionResult&lt;ProductDto&gt;&gt; UpdateStock(Guid id, [FromBody] UpdateStockRequest request, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new UpdateStockCommand
+        {
+            Id = id, Quantity = request.Quantity, Operation = request.Operation,
+        }, ct));
+
+    [HttpGet("categories")]
+    public async Task&lt;ActionResult&lt;List&lt;string&gt;&gt;&gt; GetCategories(CancellationToken ct)
+    {
+        var items = await _mediator.Send(new GetProductsQuery { Limit = 10000 }, ct);
+        var categories = items.Products.Select(p =&gt; p.Category).Distinct().OrderBy(c =&gt; c).ToList();
+        return Ok(categories);
+    }
+
+    [HttpGet("brands")]
+    public async Task&lt;ActionResult&lt;List&lt;string&gt;&gt;&gt; GetBrands(CancellationToken ct)
+    {
+        var brands = await _mediator.Send(new GetBrandsQuery(), ct);
+        return Ok(brands.Select(b =&gt; b.Name).ToList());
+    }
+
+    [HttpGet("low-stock")]
+    public async Task&lt;ActionResult&lt;List&lt;ProductDto&gt;&gt;&gt; GetLowStock(CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetLowStockProductsQuery(), ct));
+
+    [HttpGet("low-stock/details")]
+    public async Task&lt;ActionResult&lt;LowStockDetailsResponse&gt;&gt; GetLowStockDetails(
+        CancellationToken ct, [FromQuery] int page = 1, [FromQuery] int limit = 20)
+        =&gt; Ok(await _mediator.Send(new GetLowStockDetailsQuery { Page = page, Limit = limit }, ct));
+
+    [HttpGet("expired")]
+    public async Task&lt;ActionResult&lt;ProductListResponse&gt;&gt; GetExpired(
+        CancellationToken ct, [FromQuery] int page = 1, [FromQuery] int limit = 20)
+        =&gt; Ok(await _mediator.Send(new GetExpiredProductsQuery { Page = page, Limit = limit }, ct));
+
+    [HttpGet("stats")]
+    public async Task&lt;ActionResult&lt;ProductStatsResponse&gt;&gt; GetStats(CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetProductStatsQuery(), ct));
+
+    [HttpGet("{id:guid}/ledger")]
+    public async Task&lt;ActionResult&lt;List&lt;StockLedgerEntryDto&gt;&gt;&gt; GetLedger(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetStockLedgerQuery { ProductId = id }, ct));
+
+    [HttpPost("import")]
+    public async Task&lt;ActionResult&lt;ImportProductsResponse&gt;&gt; Import([FromBody] List&lt;ImportProductItem&gt; items, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new ImportProductsCommand { Items = items }, ct));
+
+    [HttpGet("export")]
+    public async Task&lt;ActionResult&lt;string&gt;&gt; Export(CancellationToken ct)
+    {
+        var csv = await _mediator.Send(new ExportProductsQuery(), ct);
+        return Ok(csv);
+    }
+
+    [HttpPut("bulk-update-price")]
+    public async Task&lt;ActionResult&gt; BulkUpdatePrice([FromBody] List&lt;BulkPriceItem&gt; items, CancellationToken ct)
+    {
+        await _mediator.Send(new BulkUpdatePriceCommand { Items = items }, ct);
+        return NoContent();
+    }
+
+    [HttpPost("adjustments")]
+    public async Task&lt;ActionResult&lt;AdjustStockResponse&gt;&gt; AdjustStock([FromBody] AdjustStockCommand command, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(command, ct));
+}
+
+public record UpdateStockRequest
+{
+    public int Quantity { get; init; }
+    public string Operation { get; init; } = "add";
+}</pre>
+  </div>
+
+  <!-- ============================================================
+       LAYER 11: DI Registration
+       ============================================================ -->
+  <h2>Layer 11 — DI Registration</h2>
+
+  <h3>11.1 DependencyInjection.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Application/DependencyInjection.cs</div>
+    <pre>using FluentValidation;
+using MediatR;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace OmniBlox.Application;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddApplication(
+        this IServiceCollection services)
+    {
+        services.AddMediatR(cfg =&gt;
+            cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly));
+
+        services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
+
+        return services;
+    }
+}</pre>
+  </div>
+
+  <h3>11.2 Program.cs</h3>
+  <div class="file-panel">
+    <div class="file-panel-header">OmniBlox.Api/Program.cs</div>
+    <pre>using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using OmniBlox.Api.Middleware;
+using OmniBlox.Application;
+using OmniBlox.Infrastructure;
+using OmniBlox.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddCors(options =&gt;
+{
+    options.AddDefaultPolicy(policy =&gt;
+    {
+        policy.WithOrigins("http://localhost:3000")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
+builder.Services.AddControllers();
+builder.Services.AddOpenApi();
+
+builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddApplication();
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =&gt;
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!)),
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =&gt;
+            {
+                var token = context.Request.Cookies["access_token"];
+                if (!string.IsNullOrEmpty(token))
+                {
+                    context.Token = token;
+                }
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+builder.Services.AddInfrastructure(builder.Configuration);
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
+app.UseMiddleware&lt;ExceptionHandlingMiddleware&gt;();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
+app.UseCors();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.Run();</pre>
+  </div>
+
+  <p class="lesson-nav">
+    <a href="0004-frontend-complete.html">Next: Frontend Complete Implementation →</a>
+  </p>
+
+</body>
+</html>

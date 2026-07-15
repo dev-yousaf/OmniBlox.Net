@@ -28,6 +28,10 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<Unit> Units => Set<Unit>();
     public DbSet<Warranty> Warranties => Set<Warranty>();
     public DbSet<VariantAttribute> VariantAttributes => Set<VariantAttribute>();
+    public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<Inventory> Inventories => Set<Inventory>();
+    public DbSet<StockAdjustment> StockAdjustments => Set<StockAdjustment>();
+    public DbSet<StockAdjustmentItem> StockAdjustmentItems => Set<StockAdjustmentItem>();
     public DbSet<StockLedgerEntry> StockLedgerEntries => Set<StockLedgerEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)

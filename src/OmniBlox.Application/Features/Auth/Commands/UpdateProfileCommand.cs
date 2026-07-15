@@ -12,6 +12,7 @@ public record UpdateProfileCommand : IRequest<UserDto>
     public string? Name { get; init; }
     public string? CompanyName { get; init; }
     public string? Industry { get; init; }
+    public string? OtherIndustry { get; init; }
     public string? Country { get; init; }
 }
 
@@ -42,7 +43,14 @@ public class UpdateProfileCommandHandler : IRequestHandler<UpdateProfileCommand,
             user.Company.Name = request.CompanyName;
 
         if (request.Industry is not null)
+        {
             user.Company.Industry = request.Industry;
+            if (request.Industry != "other")
+                user.Company.OtherIndustry = null;
+        }
+
+        if (request.OtherIndustry is not null)
+            user.Company.OtherIndustry = request.OtherIndustry;
 
         if (request.Country is not null)
             user.Company.Country = request.Country;
@@ -63,6 +71,7 @@ public class UpdateProfileCommandHandler : IRequestHandler<UpdateProfileCommand,
                 Name = user.Company.Name,
                 WorkspaceUrl = user.Company.WorkspaceUrl,
                 Industry = user.Company.Industry,
+                OtherIndustry = user.Company.OtherIndustry,
                 Country = user.Company.Country,
             },
         };

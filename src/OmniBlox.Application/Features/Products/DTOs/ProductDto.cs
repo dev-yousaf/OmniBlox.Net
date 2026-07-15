@@ -93,6 +93,7 @@ public record CreateProductRequest
     public string? Warranty { get; init; }
     public DateTime? ManufacturedDate { get; init; }
     public DateTime? ExpiryDate { get; init; }
+    public Guid? WarehouseId { get; init; }
 }
 
 public record UpdateProductRequest

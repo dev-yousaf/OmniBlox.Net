@@ -44,6 +44,7 @@ public class ProductsController : ControllerBase
             Warranty = request.Warranty,
             ManufacturedDate = request.ManufacturedDate,
             ExpiryDate = request.ExpiryDate,
+            WarehouseId = request.WarehouseId,
         };
         var result = await _mediator.Send(command, ct);
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);

@@ -17,6 +17,7 @@ public record SignupCommand : IRequest<AuthResponse>
     public string CompanyName { get; init; } = string.Empty;
     public string WorkspaceUrl { get; init; } = string.Empty;
     public string? Industry { get; init; }
+    public string? OtherIndustry { get; init; }
     public string? Country { get; init; }
 }
 
@@ -39,12 +40,19 @@ public class SignupCommandHandler : IRequestHandler<SignupCommand, AuthResponse>
         if (existingUser)
             throw new ConflictException("Email is already registered.");
 
+        var existingWorkspace = await _context.Companies
+            .AnyAsync(c => c.WorkspaceUrl == request.WorkspaceUrl, ct);
+
+        if (existingWorkspace)
+            throw new ConflictException("Workspace URL is already taken.");
+
         var company = new Company
         {
             Name = request.CompanyName,
             Email = request.Email,
             WorkspaceUrl = request.WorkspaceUrl,
             Industry = request.Industry,
+            OtherIndustry = request.Industry == "other" ? request.OtherIndustry : null,
             Country = request.Country,
         };
 
@@ -72,6 +80,7 @@ public class SignupCommandHandler : IRequestHandler<SignupCommand, AuthResponse>
             Name = company.Name,
             WorkspaceUrl = company.WorkspaceUrl,
             Industry = company.Industry,
+            OtherIndustry = company.OtherIndustry,
             Country = company.Country,
         };
 
@@ -102,7 +111,7 @@ public class SignupCommandValidator : AbstractValidator<SignupCommand>
 
         RuleFor(v => v.Password)
             .NotEmpty().WithMessage("Password is required.")
-            .MinimumLength(8).WithMessage("Password must be at least 8 characters.");
+            .MinimumLength(6).WithMessage("Password must be at least 6 characters.");
 
         RuleFor(v => v.Name)
             .NotEmpty().WithMessage("Name is required.");

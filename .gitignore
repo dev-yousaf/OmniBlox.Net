@@ -368,3 +368,9 @@ appsettings.*.local.json
 
 # Real credentials — use appsettings.Sample.json as template
 src/OmniBlox.Api/appsettings.json
+
+# Reference frontend (Next.js) — not part of the .NET solution
+client/
+
+# Reference backend (NestJS) — not part of the .NET solution
+server/

@@ -1,0 +1,2113 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 4: Settings CRUD &amp; Product Management</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+  <p class="lesson-meta">
+    <span class="lesson-number">Lesson 4</span> &middot;
+    Settings CRUD &amp; Product Management &middot;
+    ~60 minutes
+  </p>
+
+  <h1>Settings CRUD, Global Query Filters &amp; Product Management</h1>
+
+  <p>
+    This lesson builds on Lesson 3's multi-tenant foundation. We'll create <strong>6 settings features</strong>
+    (Brands, Categories, SubCategories, Units, Warranties, VariantAttributes) using a reusable CQRS pattern,
+    then extend it with <strong>Products</strong> — the first full-featured business entity with stock management,
+    bulk operations, and import/export.
+  </p>
+
+  <hr>
+
+  <h2>Part 1 — Multi-Tenant Architecture (CompanyId Pattern)</h2>
+
+  <p>
+    Every OmniBlox request belongs to a company (tenant). The multi-tenant architecture uses
+    <strong>global query filters</strong> to automatically scope every database query to the current
+    company. No manual <code>.Where(p =&gt; p.CompanyId == ...)</code> required.
+  </p>
+
+  <div class="story">
+    <div class="story-title">How every request is automatically scoped to one company</div>
+    When a user authenticates, the JWT contains a <code>companyId</code> claim. The
+    <code>CurrentUserService</code> reads this claim and exposes it as <code>CompanyId</code>.
+    When <code>AppDbContext</code> builds its model, it inspects every entity type: if the entity
+    implements <code>ITenantEntity</code> (which has a <code>CompanyId</code> property), it
+    attaches a <strong>global query filter</strong>: <code>e =&gt; e.CompanyId == currentCompanyId</code>.
+    Every LINQ query — <code>ToListAsync</code>, <code>FirstOrDefaultAsync</code>,
+    <code>CountAsync</code> — automatically includes this WHERE clause.
+    <div class="story-seq">File chain: ITenantEntity.cs → AppDbContext.cs → CurrentUserService.cs → handlers</div>
+  </div>
+
+  <h3>1. ITenantEntity — the contract</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Domain/Interfaces/ITenantEntity.cs</div>
+    <pre>
+namespace OmniBlox.Domain.Interfaces;
+
+public interface ITenantEntity
+{
+    Guid CompanyId { get; set; }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Interface, not base class:</strong> Entities already inherit from <code>BaseEntity</code>.
+    C# doesn't allow multiple inheritance, so an interface is the only way to add tenant behavior
+    across the hierarchy.
+  </div>
+
+  <h3>2. AppDbContext — query filters + auto-set CompanyId</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">src/OmniBlox.Infrastructure/Persistence/AppDbContext.cs</div>
+    <pre>
+using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Interfaces;
+
+namespace OmniBlox.Infrastructure.Persistence;
+
+public class AppDbContext : DbContext, IApplicationDbContext
+{
+    private readonly ICurrentUserService _currentUser;
+
+    public AppDbContext(
+        DbContextOptions&lt;AppDbContext&gt; options,
+        ICurrentUserService currentUser)
+        : base(options)
+    {
+        _currentUser = currentUser;
+    }
+
+    public DbSet&lt;Company&gt; Companies =&gt; Set&lt;Company&gt;();
+    public DbSet&lt;User&gt; Users =&gt; Set&lt;User&gt;();
+    public DbSet&lt;Product&gt; Products =&gt; Set&lt;Product&gt;();
+    public DbSet&lt;Brand&gt; Brands =&gt; Set&lt;Brand&gt;();
+    public DbSet&lt;ProductCategory&gt; ProductCategories =&gt; Set&lt;ProductCategory&gt;();
+    public DbSet&lt;SubCategory&gt; SubCategories =&gt; Set&lt;SubCategory&gt;();
+    public DbSet&lt;Unit&gt; Units =&gt; Set&lt;Unit&gt;();
+    public DbSet&lt;Warranty&gt; Warranties =&gt; Set&lt;Warranty&gt;();
+    public DbSet&lt;VariantAttribute&gt; VariantAttributes =&gt; Set&lt;VariantAttribute&gt;();
+
+    protected override void OnModelCreating(ModelBuilder builder)
+    {
+        base.OnModelCreating(builder);
+        builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        foreach (var entityType in builder.Model.GetEntityTypes())
+        {
+            if (typeof(ITenantEntity).IsAssignableFrom(entityType.ClrType))
+            {
+                var parameter = Expression.Parameter(entityType.ClrType, "e");
+                var property = Expression.Property(parameter, nameof(ITenantEntity.CompanyId));
+                var companyId = Expression.Constant(_currentUser.CompanyId);
+                var body = Expression.Equal(property, companyId);
+                var lambda = Expression.Lambda(body, parameter);
+
+                entityType.SetQueryFilter(lambda);
+            }
+        }
+    }
+
+    public override async Task&lt;int&gt; SaveChangesAsync(CancellationToken ct = default)
+    {
+        foreach (var entry in ChangeTracker.Entries&lt;ITenantEntity&gt;())
+        {
+            if (entry.State == EntityState.Added && entry.Entity.CompanyId == Guid.Empty)
+            {
+                entry.Entity.CompanyId = _currentUser.CompanyId;
+            }
+        }
+
+        return await base.SaveChangesAsync(ct);
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Expression trees:</strong> The <code>HasQueryFilter</code> method accepts a Lambda expression.
+    Since we don't know entity types at compile time, we build the expression at runtime using
+    <code>Expression.Parameter</code>, <code>Expression.Property</code>, <code>Expression.Constant</code>,
+    <code>Expression.Equal</code>, and <code>Expression.Lambda</code>.
+  </div>
+
+  <div class="callout warning">
+    <strong>User does NOT implement ITenantEntity:</strong> Login needs to look up users across all companies.
+    User access is controlled manually via JWT claims rather than a global filter.
+  </div>
+
+  <hr>
+
+  <h2>Part 2 — Domain Entities &amp; EF Configurations</h2>
+
+  <p>
+    Each settings feature has its own entity and EF Core configuration. All implement <code>ITenantEntity</code>
+    and <code>BaseEntity</code>. Below are the 6 entity classes and their configurations.
+  </p>
+
+  <h3>2a. Entity Classes — All 6 Settings Entities</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">Brand.cs — all settings entities follow this pattern</div>
+    <pre>
+public class Brand : BaseEntity, ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
+    public string? Description { get; set; }
+    public ActiveStatus Status { get; set; } = ActiveStatus.Active;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}
+
+public class ProductCategory : BaseEntity, ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public ActiveStatus Status { get; set; } = ActiveStatus.Active;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+    public ICollection&lt;SubCategory&gt; SubCategories { get; set; } = [];
+}
+
+public class SubCategory : BaseEntity, ITenantEntity
+{
+    public Guid CategoryId { get; set; }
+    public ProductCategory Category { get; set; } = null!;
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Code { get; set; }
+    public string? ImageUrl { get; set; }
+    public string? Description { get; set; }
+    public ActiveStatus Status { get; set; } = ActiveStatus.Active;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}
+
+public class Unit : BaseEntity, ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string ShortName { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public ActiveStatus Status { get; set; } = ActiveStatus.Active;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}
+
+public class Warranty : BaseEntity, ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public int Duration { get; set; }
+    public string DurationType { get; set; } = "days";
+    public string? Description { get; set; }
+    public ActiveStatus Status { get; set; } = ActiveStatus.Active;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}
+
+public class VariantAttribute : BaseEntity, ITenantEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public JsonDocument? Values { get; set; }
+    public string? Description { get; set; }
+    public ActiveStatus Status { get; set; } = ActiveStatus.Active;
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>ActiveStatus enum:</strong> <code>ActiveStatus { Active, Inactive }</code> is used for
+    soft-enable/disable of every settings entity. Stored as <code>int</code> via <code>HasConversion</code>.
+  </div>
+
+  <h3>2b. EF Configurations — All 6 Features</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">BrandConfiguration.cs + ProductCategoryConfiguration.cs</div>
+    <pre>// BrandConfiguration
+public class BrandConfiguration : IEntityTypeConfiguration&lt;Brand&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;Brand&gt; builder)
+    {
+        builder.ToTable("Brands");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.ImageUrl).HasMaxLength(500);
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+    <pre>// ProductCategoryConfiguration
+public class ProductCategoryConfiguration : IEntityTypeConfiguration&lt;ProductCategory&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;ProductCategory&gt; builder)
+    {
+        builder.ToTable("ProductCategories");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+  </div>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">SubCategoryConfiguration.cs — has both Category and Company FK</div>
+    <pre>public class SubCategoryConfiguration : IEntityTypeConfiguration&lt;SubCategory&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;SubCategory&gt; builder)
+    {
+        builder.ToTable("SubCategories");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Code).HasMaxLength(100);
+        builder.Property(x =&gt; x.ImageUrl).HasMaxLength(500);
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Category).WithMany(c =&gt; c.SubCategories).HasForeignKey(x =&gt; x.CategoryId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+  </div>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">UnitConfiguration.cs + WarrantyConfiguration.cs + VariantAttributeConfiguration.cs</div>
+    <pre>// UnitConfiguration
+public class UnitConfiguration : IEntityTypeConfiguration&lt;Unit&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;Unit&gt; builder)
+    {
+        builder.ToTable("Units");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(100).IsRequired();
+        builder.Property(x =&gt; x.ShortName).HasMaxLength(20).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(100).IsRequired();
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+    <pre>// WarrantyConfiguration - unique index is on (CompanyId, Name), not Slug
+public class WarrantyConfiguration : IEntityTypeConfiguration&lt;Warranty&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;Warranty&gt; builder)
+    {
+        builder.ToTable("Warranties");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Duration).IsRequired();
+        builder.Property(x =&gt; x.DurationType).HasMaxLength(20).IsRequired().HasDefaultValue("days");
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Name }).IsUnique();  // Name, not Slug!
+    }
+}</pre>
+    <pre>// VariantAttributeConfiguration - uses jsonb column for Values
+public class VariantAttributeConfiguration : IEntityTypeConfiguration&lt;VariantAttribute&gt;
+{
+    public void Configure(EntityTypeBuilder&lt;VariantAttribute&gt; builder)
+    {
+        builder.ToTable("VariantAttributes");
+        builder.HasKey(x =&gt; x.Id);
+        builder.Property(x =&gt; x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Slug).HasMaxLength(200).IsRequired();
+        builder.Property(x =&gt; x.Values).HasColumnType("jsonb");
+        builder.Property(x =&gt; x.Description).HasMaxLength(500);
+        builder.Property(x =&gt; x.Status).HasConversion&lt;int&gt;().IsRequired();
+        builder.HasOne(x =&gt; x.Company).WithMany().HasForeignKey(x =&gt; x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x =&gt; new { x.CompanyId, x.Slug }).IsUnique();
+    }
+}</pre>
+  </div>
+
+  <div class="callout success">
+    <strong>Pattern summary:</strong> Every configuration has a <code>ToTable</code>, <code>HasKey</code>,
+    string length constraints, <code>Status.HasConversion&lt;int&gt;</code>, a <code>Company</code> FK with
+    <code>DeleteBehavior.Restrict</code>, and a unique composite index on <code>(CompanyId, Slug/Name)</code>.
+    Only SubCategory has a second FK (to Category).
+  </div>
+
+  <hr>
+
+  <h2>Part 3 — Application Layer: The CQRS Pattern Per Feature</h2>
+
+  <p>
+    Every settings feature follows the same 7-file structure. Below is the <strong>complete source code</strong>
+    for all 6 features — Brands, ProductCategories, SubCategories, Units, Warranties, and VariantAttributes.
+  </p>
+
+  <h3>3a. 7-File Pattern x 6 Features</h3>
+
+  <table>
+    <tr><th>Layer</th><th>File</th><th>Purpose</th></tr>
+    <tr><td>Application/DTOs</td><td><code>{Feature}Dto.cs</code></td><td>Read-model returned to clients</td></tr>
+    <tr><td>Application/Commands</td><td><code>Create{Feature}Command.cs</code></td><td>Create + handler + validator</td></tr>
+    <tr><td>Application/Commands</td><td><code>Update{Feature}Command.cs</code></td><td>Update + handler + validator</td></tr>
+    <tr><td>Application/Commands</td><td><code>Delete{Feature}Command.cs</code></td><td>Delete by ID</td></tr>
+    <tr><td>Application/Commands</td><td><code>BulkDelete{Feature}sCommand.cs</code></td><td>Bulk delete with per-item errors</td></tr>
+    <tr><td>Application/Queries</td><td><code>Get{Feature}sQuery.cs</code></td><td>List all (company-scoped)</td></tr>
+    <tr><td>Application/Queries</td><td><code>Get{Feature}ByIdQuery.cs</code></td><td>Get single by ID</td></tr>
+  </table>
+
+  <h3>3b. DTOs — All 6 Features</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">BrandDto.cs — Brand, ProductCategory, SubCategory</div>
+    <pre>
+// BrandDto
+public class BrandDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string? ImageUrl { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public Guid CompanyId { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+    public static BrandDto FromEntity(Brand e) =&gt; new()
+    {
+        Id = e.Id, Name = e.Name, Slug = e.Slug,
+        Description = e.Description, ImageUrl = e.ImageUrl,
+        Status = e.Status.ToString(), CompanyId = e.CompanyId,
+        CreatedAt = e.CreatedAt, UpdatedAt = e.UpdatedAt,
+    };
+}</pre>
+    <pre>
+// ProductCategoryDto
+public class ProductCategoryDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public Guid CompanyId { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+    public static ProductCategoryDto FromEntity(ProductCategory e) =&gt; new()
+    {
+        Id = e.Id, Name = e.Name, Slug = e.Slug,
+        Description = e.Description, Status = e.Status.ToString(),
+        CompanyId = e.CompanyId,
+        CreatedAt = e.CreatedAt, UpdatedAt = e.UpdatedAt,
+    };
+}</pre>
+    <pre>
+// SubCategoryDto
+public class SubCategoryDto
+{
+    public Guid Id { get; init; }
+    public Guid CategoryId { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? Code { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public Guid CompanyId { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+    public static SubCategoryDto FromEntity(SubCategory e) =&gt; new()
+    {
+        Id = e.Id, CategoryId = e.CategoryId,
+        Name = e.Name, Slug = e.Slug,
+        Code = e.Code, ImageUrl = e.ImageUrl,
+        Description = e.Description, Status = e.Status.ToString(),
+        CompanyId = e.CompanyId,
+        CreatedAt = e.CreatedAt, UpdatedAt = e.UpdatedAt,
+    };
+}</pre>
+  </div>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">UnitDto.cs — Unit, Warranty, VariantAttribute</div>
+    <pre>
+// UnitDto
+public class UnitDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string ShortName { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public Guid CompanyId { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+    public static UnitDto FromEntity(Unit e) =&gt; new()
+    {
+        Id = e.Id, Name = e.Name, ShortName = e.ShortName,
+        Slug = e.Slug, Description = e.Description,
+        Status = e.Status.ToString(), CompanyId = e.CompanyId,
+        CreatedAt = e.CreatedAt, UpdatedAt = e.UpdatedAt,
+    };
+}</pre>
+    <pre>
+// WarrantyDto
+public class WarrantyDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public int Duration { get; init; }
+    public string DurationType { get; init; } = "days";
+    public string? Description { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public Guid CompanyId { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+    public static WarrantyDto FromEntity(Warranty e) =&gt; new()
+    {
+        Id = e.Id, Name = e.Name,
+        Duration = e.Duration, DurationType = e.DurationType,
+        Description = e.Description, Status = e.Status.ToString(),
+        CompanyId = e.CompanyId,
+        CreatedAt = e.CreatedAt, UpdatedAt = e.UpdatedAt,
+    };
+}</pre>
+    <pre>
+// VariantAttributeDto
+public class VariantAttributeDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public JsonDocument? Values { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public Guid CompanyId { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+    public static VariantAttributeDto FromEntity(VariantAttribute e) =&gt; new()
+    {
+        Id = e.Id, Name = e.Name, Slug = e.Slug,
+        Description = e.Description, Values = e.Values,
+        Status = e.Status.ToString(), CompanyId = e.CompanyId,
+        CreatedAt = e.CreatedAt, UpdatedAt = e.UpdatedAt,
+    };
+}</pre>
+  </div>
+
+  <h3>3c. Create Commands — All 6 Features</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">CreateBrandCommand.cs + CreateProductCategoryCommand.cs</div>
+    <pre>
+public record CreateBrandCommand : IRequest&lt;BrandDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string? ImageUrl { get; init; }
+}
+
+public class CreateBrandCommandHandler : IRequestHandler&lt;CreateBrandCommand, BrandDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateBrandCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
+
+    public async Task&lt;BrandDto&gt; Handle(CreateBrandCommand request, CancellationToken ct)
+    {
+        var slug = request.Name.ToLowerInvariant().Replace(" ", "-");
+        var slugExists = await _context.Brands.AnyAsync(b =&gt; b.Slug == slug, ct);
+        if (slugExists) throw new ConflictException($"Brand '{request.Name}' already exists.");
+
+        var entity = new Brand
+        {
+            Name = request.Name, Slug = slug,
+            Description = request.Description, ImageUrl = request.ImageUrl,
+            CompanyId = _currentUser.CompanyId,
+        };
+        _context.Brands.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return BrandDto.FromEntity(entity);
+    }
+}
+
+public class CreateBrandCommandValidator : AbstractValidator&lt;CreateBrandCommand&gt;
+{
+    public CreateBrandCommandValidator() =&gt; RuleFor(v =&gt; v.Name).NotEmpty().MaximumLength(100);
+}</pre>
+    <pre>
+// CreateProductCategoryCommand — identical pattern
+public record CreateProductCategoryCommand : IRequest&lt;ProductCategoryDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Description { get; init; }
+}
+
+public class CreateProductCategoryCommandHandler : IRequestHandler&lt;CreateProductCategoryCommand, ProductCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateProductCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
+
+    public async Task&lt;ProductCategoryDto&gt; Handle(CreateProductCategoryCommand request, CancellationToken ct)
+    {
+        var slug = request.Name.ToLowerInvariant().Replace(" ", "-");
+        var slugExists = await _context.ProductCategories.AnyAsync(x =&gt; x.Slug == slug, ct);
+        if (slugExists) throw new ConflictException($"Category '{request.Name}' already exists.");
+
+        var entity = new ProductCategory
+        {
+            Name = request.Name, Slug = slug,
+            Description = request.Description,
+            CompanyId = _currentUser.CompanyId,
+        };
+        _context.ProductCategories.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return ProductCategoryDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">CreateSubCategoryCommand.cs — validates parent CategoryId exists</div>
+    <pre>
+public record CreateSubCategoryCommand : IRequest&lt;SubCategoryDto&gt;
+{
+    public Guid CategoryId { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string? Code { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+}
+
+public class CreateSubCategoryCommandHandler : IRequestHandler&lt;CreateSubCategoryCommand, SubCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateSubCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
+
+    public async Task&lt;SubCategoryDto&gt; Handle(CreateSubCategoryCommand request, CancellationToken ct)
+    {
+        var catExists = await _context.ProductCategories.AnyAsync(x =&gt; x.Id == request.CategoryId, ct);
+        if (!catExists) throw new NotFoundException(nameof(ProductCategory), request.CategoryId);
+
+        var slug = request.Name.ToLowerInvariant().Replace(" ", "-");
+        var slugExists = await _context.SubCategories.AnyAsync(x =&gt; x.Slug == slug &amp;&amp; x.CategoryId == request.CategoryId, ct);
+        if (slugExists) throw new ConflictException($"SubCategory '{request.Name}' already exists in this category.");
+
+        var entity = new SubCategory
+        {
+            CategoryId = request.CategoryId, Name = request.Name, Slug = slug,
+            Code = request.Code, ImageUrl = request.ImageUrl, Description = request.Description,
+            CompanyId = _currentUser.CompanyId,
+        };
+        _context.SubCategories.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return SubCategoryDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">CreateUnitCommand.cs + CreateWarrantyCommand.cs + CreateVariantAttributeCommand.cs</div>
+    <pre>
+// CreateUnitCommand
+public record CreateUnitCommand : IRequest&lt;UnitDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public string ShortName { get; init; } = string.Empty;
+    public string? Description { get; init; }
+}
+
+public class CreateUnitCommandHandler : IRequestHandler&lt;CreateUnitCommand, UnitDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateUnitCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
+
+    public async Task&lt;UnitDto&gt; Handle(CreateUnitCommand request, CancellationToken ct)
+    {
+        var slug = request.Name.ToLowerInvariant().Replace(" ", "-");
+        var exists = await _context.Units.AnyAsync(x =&gt; x.Slug == slug, ct);
+        if (exists) throw new ConflictException($"Unit '{request.Name}' already exists.");
+
+        var entity = new Unit
+        {
+            Name = request.Name, ShortName = request.ShortName,
+            Slug = slug, Description = request.Description,
+            CompanyId = _currentUser.CompanyId,
+        };
+        _context.Units.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return UnitDto.FromEntity(entity);
+    }
+}</pre>
+    <pre>
+// CreateWarrantyCommand
+public record CreateWarrantyCommand : IRequest&lt;WarrantyDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public int Duration { get; init; }
+    public string DurationType { get; init; } = "days";
+    public string? Description { get; init; }
+}
+
+public class CreateWarrantyCommandHandler : IRequestHandler&lt;CreateWarrantyCommand, WarrantyDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateWarrantyCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
+
+    public async Task&lt;WarrantyDto&gt; Handle(CreateWarrantyCommand request, CancellationToken ct)
+    {
+        var exists = await _context.Warranties.AnyAsync(x =&gt; x.Name == request.Name, ct);
+        if (exists) throw new ConflictException($"Warranty '{request.Name}' already exists.");
+
+        var entity = new Warranty
+        {
+            Name = request.Name, Duration = request.Duration,
+            DurationType = request.DurationType, Description = request.Description,
+            CompanyId = _currentUser.CompanyId,
+        };
+        _context.Warranties.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return WarrantyDto.FromEntity(entity);
+    }
+}</pre>
+    <pre>
+// CreateVariantAttributeCommand
+public record CreateVariantAttributeCommand : IRequest&lt;VariantAttributeDto&gt;
+{
+    public string Name { get; init; } = string.Empty;
+    public JsonDocument? Values { get; init; }
+    public string? Description { get; init; }
+}
+
+public class CreateVariantAttributeCommandHandler : IRequestHandler&lt;CreateVariantAttributeCommand, VariantAttributeDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateVariantAttributeCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
+
+    public async Task&lt;VariantAttributeDto&gt; Handle(CreateVariantAttributeCommand request, CancellationToken ct)
+    {
+        var slug = request.Name.ToLowerInvariant().Replace(" ", "-");
+        var exists = await _context.VariantAttributes.AnyAsync(x =&gt; x.Slug == slug, ct);
+        if (exists) throw new ConflictException($"Variant attribute '{request.Name}' already exists.");
+
+        var entity = new VariantAttribute
+        {
+            Name = request.Name, Slug = slug,
+            Values = request.Values, Description = request.Description,
+            CompanyId = _currentUser.CompanyId,
+        };
+        _context.VariantAttributes.Add(entity);
+        await _context.SaveChangesAsync(ct);
+        return VariantAttributeDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <h3>3d. Update Commands — All 6 Features</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">UpdateBrandCommand.cs — partial update merge pattern</div>
+    <pre>
+public record UpdateBrandCommand : IRequest&lt;BrandDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public string? Description { get; init; }
+    public string? ImageUrl { get; init; }
+}
+
+public class UpdateBrandCommandHandler : IRequestHandler&lt;UpdateBrandCommand, BrandDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateBrandCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BrandDto&gt; Handle(UpdateBrandCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Brands.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
+
+        if (request.Name is not null) { entity.Name = request.Name; entity.Slug = request.Name.ToLowerInvariant().Replace(" ", "-"); }
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.ImageUrl is not null) entity.ImageUrl = request.ImageUrl;
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return BrandDto.FromEntity(entity);
+    }
+}
+
+public class UpdateBrandCommandValidator : AbstractValidator&lt;UpdateBrandCommand&gt;
+{
+    public UpdateBrandCommandValidator()
+    {
+        RuleFor(v =&gt; v.Id).NotEmpty();
+        RuleFor(v =&gt; v.Name).MaximumLength(100).When(v =&gt; v.Name is not null);
+    }
+}</pre>
+  </div>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">UpdateProductCategoryCommand.cs + UpdateSubCategoryCommand.cs</div>
+    <pre>
+// UpdateProductCategoryCommand — same merge pattern
+public record UpdateProductCategoryCommand : IRequest&lt;ProductCategoryDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class UpdateProductCategoryCommandHandler : IRequestHandler&lt;UpdateProductCategoryCommand, ProductCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateProductCategoryCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;ProductCategoryDto&gt; Handle(UpdateProductCategoryCommand request, CancellationToken ct)
+    {
+        var entity = await _context.ProductCategories.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(ProductCategory), request.Id);
+
+        if (request.Name is not null) { entity.Name = request.Name; entity.Slug = request.Name.ToLowerInvariant().Replace(" ", "-"); }
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s)) entity.Status = s;
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return ProductCategoryDto.FromEntity(entity);
+    }
+}</pre>
+    <pre>
+// UpdateSubCategoryCommand
+public record UpdateSubCategoryCommand : IRequest&lt;SubCategoryDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public string? Code { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class UpdateSubCategoryCommandHandler : IRequestHandler&lt;UpdateSubCategoryCommand, SubCategoryDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateSubCategoryCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;SubCategoryDto&gt; Handle(UpdateSubCategoryCommand request, CancellationToken ct)
+    {
+        var entity = await _context.SubCategories.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(SubCategory), request.Id);
+
+        if (request.Name is not null) { entity.Name = request.Name; entity.Slug = request.Name.ToLowerInvariant().Replace(" ", "-"); }
+        if (request.Code is not null) entity.Code = request.Code;
+        if (request.ImageUrl is not null) entity.ImageUrl = request.ImageUrl;
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s)) entity.Status = s;
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return SubCategoryDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">UpdateUnitCommand.cs + UpdateWarrantyCommand.cs + UpdateVariantAttributeCommand.cs</div>
+    <pre>
+// UpdateUnitCommand
+public record UpdateUnitCommand : IRequest&lt;UnitDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public string? ShortName { get; init; }
+    public string? Description { get; init; }
+}
+
+public class UpdateUnitCommandHandler : IRequestHandler&lt;UpdateUnitCommand, UnitDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateUnitCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;UnitDto&gt; Handle(UpdateUnitCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Units.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Unit), request.Id);
+
+        if (request.Name is not null) entity.Name = request.Name;
+        if (request.ShortName is not null) entity.ShortName = request.ShortName;
+        if (request.Description is not null) entity.Description = request.Description;
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return UnitDto.FromEntity(entity);
+    }
+}</pre>
+    <pre>
+// UpdateWarrantyCommand
+public record UpdateWarrantyCommand : IRequest&lt;WarrantyDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public int? Duration { get; init; }
+    public string? DurationType { get; init; }
+    public string? Description { get; init; }
+}
+
+public class UpdateWarrantyCommandHandler : IRequestHandler&lt;UpdateWarrantyCommand, WarrantyDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateWarrantyCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;WarrantyDto&gt; Handle(UpdateWarrantyCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Warranties.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Warranty), request.Id);
+
+        if (request.Name is not null) entity.Name = request.Name;
+        if (request.Duration is not null) entity.Duration = request.Duration.Value;
+        if (request.DurationType is not null) entity.DurationType = request.DurationType;
+        if (request.Description is not null) entity.Description = request.Description;
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return WarrantyDto.FromEntity(entity);
+    }
+}</pre>
+    <pre>
+// UpdateVariantAttributeCommand
+public record UpdateVariantAttributeCommand : IRequest&lt;VariantAttributeDto&gt;
+{
+    public Guid Id { get; init; }
+    public string? Name { get; init; }
+    public string? Slug { get; init; }
+    public JsonDocument? Values { get; init; }
+    public string? Description { get; init; }
+    public string? Status { get; init; }
+}
+
+public class UpdateVariantAttributeCommandHandler : IRequestHandler&lt;UpdateVariantAttributeCommand, VariantAttributeDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public UpdateVariantAttributeCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;VariantAttributeDto&gt; Handle(UpdateVariantAttributeCommand request, CancellationToken ct)
+    {
+        var entity = await _context.VariantAttributes.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(VariantAttribute), request.Id);
+
+        if (request.Name is not null) entity.Name = request.Name;
+        if (request.Values is not null) entity.Values = request.Values;
+        if (request.Description is not null) entity.Description = request.Description;
+        if (request.Status is not null &amp;&amp; Enum.TryParse&lt;ActiveStatus&gt;(request.Status, true, out var s)) entity.Status = s;
+        if (request.Slug is not null)
+        {
+            var slug = request.Slug.ToLowerInvariant();
+            var exists = await _context.VariantAttributes.AnyAsync(x =&gt; x.Slug == slug &amp;&amp; x.Id != request.Id, ct);
+            if (exists) throw new ConflictException($"Variant attribute with slug '{slug}' already exists.");
+            entity.Slug = slug;
+        }
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+        return VariantAttributeDto.FromEntity(entity);
+    }
+}</pre>
+  </div>
+
+  <h3>3e. Delete Commands — All 6 Features (identical pattern)</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">DeleteBrandCommand.cs — template for all 6</div>
+    <pre>
+// DeleteCommand for all 6 features — only DbSet name and NotFoundException type change
+public record DeleteBrandCommand : IRequest { public Guid Id { get; init; } }
+
+public class DeleteBrandCommandHandler : IRequestHandler&lt;DeleteBrandCommand&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public DeleteBrandCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task Handle(DeleteBrandCommand request, CancellationToken ct)
+    {
+        var entity = await _context.Brands.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
+        _context.Brands.Remove(entity);
+        await _context.SaveChangesAsync(ct);
+    }
+}
+
+// DbSet / entity type mapping for all 6:
+//   Brand            =&gt; _context.Brands            =&gt; nameof(Brand)
+//   ProductCategory  =&gt; _context.ProductCategories =&gt; nameof(ProductCategory)
+//   SubCategory      =&gt; _context.SubCategories     =&gt; nameof(SubCategory)
+//   Unit             =&gt; _context.Units             =&gt; nameof(Unit)
+//   Warranty         =&gt; _context.Warranties        =&gt; nameof(Warranty)
+//   VariantAttribute =&gt; _context.VariantAttributes =&gt; nameof(VariantAttribute)</pre>
+  </div>
+
+  <h3>3f. Bulk Delete Commands — All 6 Features</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">BulkDeleteBrandsCommand.cs — shared types + one handler per feature</div>
+    <pre>
+// Shared response types (reused across all features)
+public record BulkDeleteResponse
+{
+    public string Message { get; init; } = string.Empty;
+    public List&lt;Guid&gt; Deleted { get; init; } = [];
+    public List&lt;FailedItem&gt; Failed { get; init; } = [];
+}
+
+public record FailedItem
+{
+    public Guid Id { get; init; }
+    public string Error { get; init; } = string.Empty;
+}
+
+// BulkDeleteBrandsCommand — same pattern for all 6 features
+public record BulkDeleteBrandsCommand : IRequest&lt;BulkDeleteResponse&gt;
+{
+    public List&lt;Guid&gt; Ids { get; init; } = [];
+}
+
+public class BulkDeleteBrandsCommandHandler : IRequestHandler&lt;BulkDeleteBrandsCommand, BulkDeleteResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public BulkDeleteBrandsCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BulkDeleteResponse&gt; Handle(BulkDeleteBrandsCommand request, CancellationToken ct)
+    {
+        var deleted = new List&lt;Guid&gt;();
+        var failed = new List&lt;FailedItem&gt;();
+        foreach (var id in request.Ids)
+        {
+            var entity = await _context.Brands.FirstOrDefaultAsync(x =&gt; x.Id == id, ct);
+            if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
+            _context.Brands.Remove(entity);
+            deleted.Add(id);
+        }
+        await _context.SaveChangesAsync(ct);
+        return new BulkDeleteResponse
+        {
+            Message = $"{deleted.Count} brand(s) deleted, {failed.Count} failed.",
+            Deleted = deleted, Failed = failed,
+        };
+    }
+}
+
+// Same handler body for all 6 features — only the DbSet name changes:
+//   _context.Brands / _context.ProductCategories / _context.SubCategories
+//   _context.Units / _context.Warranties / _context.VariantAttributes</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Bulk delete pattern:</strong> Processes each ID individually — if some fail (not found, FK constraint),
+    others still succeed. Returns a <code>BulkDeleteResponse</code> with success count + per-item failure details.
+  </div>
+
+  <h3>3g. GetList Queries — All 6 Features (identical pattern)</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">GetBrandsQuery.cs — template for all 6</div>
+    <pre>
+public record GetBrandsQuery : IRequest&lt;List&lt;BrandDto&gt;&gt;;
+
+public class GetBrandsQueryHandler : IRequestHandler&lt;GetBrandsQuery, List&lt;BrandDto&gt;&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetBrandsQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;List&lt;BrandDto&gt;&gt; Handle(GetBrandsQuery request, CancellationToken ct)
+    {
+        var items = await _context.Brands.OrderBy(x =&gt; x.Name).ToListAsync(ct);
+        return items.Select(BrandDto.FromEntity).ToList();
+    }
+}
+
+// Same structure for all GetAll queries — only DbSet and DTO change:
+//   GetProductCategoriesQuery  =&gt; _context.ProductCategories  =&gt; ProductCategoryDto
+//   GetSubCategoriesQuery      =&gt; _context.SubCategories      =&gt; SubCategoryDto
+//   GetUnitsQuery              =&gt; _context.Units              =&gt; UnitDto
+//   GetWarrantiesQuery         =&gt; _context.Warranties          =&gt; WarrantyDto
+//   GetVariantAttributesQuery  =&gt; _context.VariantAttributes  =&gt; VariantAttributeDto</pre>
+  </div>
+
+  <div class="callout">
+    <strong>No .Where() needed:</strong> The global query filter adds <code>WHERE CompanyId = @currentUserCompanyId</code>
+    automatically. Same code, different data per company.
+  </div>
+
+  <h3>3h. GetById Queries — All 6 Features (identical pattern)</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">GetBrandByIdQuery.cs — template for all 6</div>
+    <pre>
+public record GetBrandByIdQuery : IRequest&lt;BrandDto&gt; { public Guid Id { get; init; } }
+
+public class GetBrandByIdQueryHandler : IRequestHandler&lt;GetBrandByIdQuery, BrandDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetBrandByIdQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BrandDto&gt; Handle(GetBrandByIdQuery request, CancellationToken ct)
+    {
+        var entity = await _context.Brands.FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
+        return BrandDto.FromEntity(entity);
+    }
+}
+
+// Same for all 6 — only DbSet, entity type name (for NotFoundException), and DTO change.</pre>
+  </div>
+
+  <div class="callout success">
+    <strong>42 files total (7 per feature x 6 features)</strong> + 6 EF configuration classes.
+    All auto-discovered by MediatR and FluentValidation — <strong>zero changes to DI registrations</strong>
+    when adding a new feature.
+  </div>
+
+  <hr>
+
+  <h2>Part 4 — Products Extended Operations</h2>
+
+  <p>
+    Beyond basic CRUD, the Products feature includes stock management, import/export, and statistics.
+    These are unique to Products — no other entity has them.
+  </p>
+
+  <h3>4a. UpdateStockCommand — add/subtract inventory</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">UpdateStockCommand.cs</div>
+    <pre>
+public record UpdateStockCommand : IRequest&lt;ProductDto&gt;
+{
+    public Guid Id { get; init; }
+    public int Quantity { get; init; }       // positive = add, negative = subtract
+    public string Reason { get; init; } = string.Empty;
+}
+
+public class UpdateStockCommandHandler : IRequestHandler&lt;UpdateStockCommand, ProductDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+
+    public UpdateStockCommandHandler(IApplicationDbContext context)
+        =&gt; _context = context;
+
+    public async Task&lt;ProductDto&gt; Handle(
+        UpdateStockCommand request, CancellationToken ct)
+    {
+        var product = await _context.Products
+            .FirstOrDefaultAsync(p =&gt; p.Id == request.Id, ct);
+
+        if (product is null)
+            throw new NotFoundException(nameof(Product), request.Id);
+
+        var newStock = product.Stock + request.Quantity;
+
+        if (newStock &lt; 0)
+            throw new BadRequestException(
+                $"Insufficient stock. Current: {product.Stock}, Requested: {-request.Quantity}");
+
+        product.Stock = newStock;
+        product.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(ct);
+
+        return ProductDto.FromEntity(product);
+    }
+}</pre>
+  </div>
+
+  <div class="callout warning">
+    <strong>Negative stock check:</strong> The handler validates that stock never goes negative.
+    This is a business rule — you can't sell what you don't have. The frontend also validates,
+    but the API is the final guard.
+  </div>
+
+  <h3>4b. BulkUpdateStatusCommand — activate/deactivate multiple products</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">BulkUpdateProductsStatusCommand.cs</div>
+    <pre>
+public record BulkUpdateProductsStatusCommand
+    : IRequest&lt;BulkOperationResponse&gt;
+{
+    public List&lt;Guid&gt; Ids { get; init; } = [];
+    public string Status { get; init; } = string.Empty;  // "active" || "inactive"
+}
+
+public record BulkOperationResponse
+{
+    public int Updated { get; init; }
+    public List&lt;BulkOperationError&gt; Errors { get; init; } = [];
+}
+
+public record BulkOperationError
+{
+    public Guid Id { get; init; }
+    public string Message { get; init; } = string.Empty;
+}
+
+public class BulkUpdateProductsStatusCommandHandler
+    : IRequestHandler&lt;BulkUpdateProductsStatusCommand, BulkOperationResponse&gt;
+{
+    private readonly IApplicationDbContext _context;
+
+    public BulkUpdateProductsStatusCommandHandler(
+        IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;BulkOperationResponse&gt; Handle(
+        BulkUpdateProductsStatusCommand request, CancellationToken ct)
+    {
+        if (!Enum.TryParse&lt;ProductStatus&gt;(request.Status, true, out var status))
+            throw new BadRequestException(
+                $"Invalid status '{request.Status}'. Use 'active' or 'inactive'.");
+
+        var errors = new List&lt;BulkOperationError&gt;();
+        var updated = 0;
+
+        foreach (var id in request.Ids)
+        {
+            var product = await _context.Products
+                .FirstOrDefaultAsync(p =&gt; p.Id == id, ct);
+
+            if (product is null)
+            {
+                errors.Add(new BulkOperationError
+                    { Id = id, Message = "Product not found." });
+                continue;
+            }
+
+            product.Status = status;
+            product.UpdatedAt = DateTime.UtcNow;
+            updated++;
+        }
+
+        await _context.SaveChangesAsync(ct);
+        return new BulkOperationResponse { Updated = updated, Errors = errors };
+    }
+}</pre>
+  </div>
+
+  <h3>4c. ExportProductsQuery — CSV/XLSX export</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">ExportProductsQuery.cs</div>
+    <pre>
+public record ExportProductsQuery : IRequest&lt;byte[]&gt;
+{
+    public string Format { get; init; } = "csv";  // "csv" | "xlsx"
+    public string? Category { get; init; }
+    public string? Status { get; init; }
+}
+
+public class ExportProductsQueryHandler
+    : IRequestHandler&lt;ExportProductsQuery, byte[]&gt;
+{
+    private readonly IApplicationDbContext _context;
+
+    public ExportProductsQueryHandler(
+        IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;byte[]&gt; Handle(
+        ExportProductsQuery request, CancellationToken ct)
+    {
+        var query = _context.Products.AsQueryable();
+
+        if (request.Category is not null)
+            query = query.Where(p =&gt; p.Category == request.Category);
+
+        if (request.Status is not null
+            &amp;&amp; Enum.TryParse&lt;ProductStatus&gt;(
+                request.Status, true, out var status))
+            query = query.Where(p =&gt; p.Status == status);
+
+        var products = await query
+            .OrderBy(p =&gt; p.Name)
+            .ToListAsync(ct);
+
+        return request.Format.ToLower() switch
+        {
+            "csv" =&gt; ExportHelper.ToCsv(products),
+            "xlsx" =&gt; ExportHelper.ToXlsx(products),
+            _ =&gt; throw new BadRequestException(
+                "Format must be 'csv' or 'xlsx'."),
+        };
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>ExportHelper:</strong> A utility class (in <code>OmniBlox.Shared</code>) that converts
+    <code>List&lt;Product&gt;</code> to CSV bytes or XLSX bytes. The controller returns
+    <code>File(result, contentType, "products.{ext}")</code>.
+  </div>
+
+  <h3>4d. ImportProductsCommand — bulk create/update from CSV</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">ImportProductsCommand.cs</div>
+    <pre>
+public record ImportProductsCommand : IRequest&lt;ImportResult&gt;
+{
+    public IFormFile File { get; init; } = null!;
+    public bool DryRun { get; init; }
+}
+
+public record ImportResult
+{
+    public int Created { get; init; }
+    public int Updated { get; init; }
+    public int Skipped { get; init; }
+    public List&lt;ImportError&gt; Errors { get; init; } = [];
+}
+
+public record ImportError
+{
+    public int Row { get; init; }
+    public string Message { get; init; } = string.Empty;
+}
+
+public class ImportProductsCommandHandler
+    : IRequestHandler&lt;ImportProductsCommand, ImportResult&gt;
+{
+    private readonly IApplicationDbContext _context;
+
+    public ImportProductsCommandHandler(
+        IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;ImportResult&gt; Handle(
+        ImportProductsCommand request, CancellationToken ct)
+    {
+        // Read CSV rows
+        // For each row: validate, convert, upsert by SKU
+        // If DryRun: validate only, don't save
+        // Return ImportResult with counts
+        throw new NotImplementedException("Fill in with CSV parsing logic");
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Dry run:</strong> The <code>DryRun</code> flag validates without persisting.
+    The frontend shows preview — "12 products will be created, 3 will be updated, 2 errors" —
+    before the user commits.
+  </div>
+
+  <h3>4e. GetProductStatsQuery — dashboard statistics</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">GetProductStatsQuery.cs</div>
+    <pre>
+public record GetProductStatsQuery : IRequest&lt;ProductStatsDto&gt;;
+
+public class GetProductStatsQueryHandler
+    : IRequestHandler&lt;GetProductStatsQuery, ProductStatsDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+
+    public GetProductStatsQueryHandler(
+        IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;ProductStatsDto&gt; Handle(
+        GetProductStatsQuery request, CancellationToken ct)
+    {
+        var products = await _context.Products
+            .Where(p =&gt; p.Status != ProductStatus.Deleted)
+            .ToListAsync(ct);
+
+        return new ProductStatsDto
+        {
+            TotalProducts = products.Count,
+            ActiveProducts = products.Count(p =&gt; p.Status == ProductStatus.Active),
+            TotalStock = products.Sum(p =&gt; p.Stock),
+            AveragePrice = products.Any()
+                ? products.Average(p =&gt; p.SalePrice) : 0,
+            TotalValue = products.Sum(p =&gt; p.SalePrice * p.Stock),
+            ByCategory = products
+                .GroupBy(p =&gt; p.Category)
+                .ToDictionary(g =&gt; g.Key, g =&gt; g.Count()),
+        };
+    }
+}</pre>
+  </div>
+
+  <hr>
+
+  <h2>Part 5 — ProductsController</h2>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">ProductsController.cs — full CRUD + extended operations</div>
+    <pre>
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class ProductsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    public ProductsController(IMediator mediator) =&gt; _mediator = mediator;
+
+    // === CRUD ===
+
+    [HttpGet]
+    public async Task&lt;IActionResult&gt; GetAll()
+    {
+        var result = await _mediator.Send(new GetProductsQuery());
+        return Ok(result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;IActionResult&gt; GetById(Guid id)
+    {
+        var result = await _mediator.Send(
+            new GetProductByIdQuery { Id = id });
+        return Ok(result);
+    }
+
+    [HttpPost]
+    public async Task&lt;IActionResult&gt; Create(
+        CreateProductCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;IActionResult&gt; Update(Guid id,
+        UpdateProductCommand command)
+    {
+        command = command with { Id = id };
+        var result = await _mediator.Send(command);
+        return Ok(result);
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;IActionResult&gt; Delete(Guid id)
+    {
+        await _mediator.Send(
+            new DeleteProductCommand { Id = id });
+        return NoContent();
+    }
+
+    // === Extended Operations ===
+
+    [HttpPatch("{id:guid}/stock")]
+    public async Task&lt;IActionResult&gt; UpdateStock(Guid id,
+        UpdateStockCommand command)
+    {
+        command = command with { Id = id };
+        var result = await _mediator.Send(command);
+        return Ok(result);
+    }
+
+    [HttpPatch("bulk-status")]
+    public async Task&lt;IActionResult&gt; BulkUpdateStatus(
+        BulkUpdateProductsStatusCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return Ok(result);
+    }
+
+    [HttpGet("export")]
+    public async Task&lt;IActionResult&gt; Export(
+        [FromQuery] ExportProductsQuery query)
+    {
+        var result = await _mediator.Send(query);
+        var contentType = query.Format.ToLower() == "csv"
+            ? "text/csv"
+            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        return File(result, contentType,
+            $"products.{query.Format.ToLower()}");
+    }
+
+    [HttpPost("import")]
+    public async Task&lt;IActionResult&gt; Import(
+        [FromForm] ImportProductsCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return Ok(result);
+    }
+
+    [HttpGet("stats")]
+    public async Task&lt;IActionResult&gt; GetStats()
+    {
+        var result = await _mediator.Send(
+            new GetProductStatsQuery());
+        return Ok(result);
+    }
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Route conventions:</strong>
+    <ul>
+      <li><code>GET /api/products</code> — list all</li>
+      <li><code>GET /api/products/{id}</code> — get by id</li>
+      <li><code>POST /api/products</code> — create</li>
+      <li><code>PUT /api/products/{id}</code> — update</li>
+      <li><code>DELETE /api/products/{id}</code> — delete</li>
+      <li><code>PATCH /api/products/{id}/stock</code> — stock adjustment</li>
+      <li><code>PATCH /api/products/bulk-status</code> — bulk status change</li>
+      <li><code>GET /api/products/export</code> — CSV/XLSX export</li>
+      <li><code>POST /api/products/import</code> — CSV import</li>
+      <li><code>GET /api/products/stats</code> — statistics</li>
+    </ul>
+  </div>
+
+  <hr>
+
+  <h2>Part 6 — Settings Controllers (Uniform Pattern)</h2>
+
+  <p>
+    Every settings feature has a controller with the same 6 endpoints.
+    Each controller is ~20 lines thanks to MediatR.
+  </p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">BrandsController.cs — template for all 6 settings controllers</div>
+    <pre>
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class BrandsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    public BrandsController(IMediator mediator) =&gt; _mediator = mediator;
+
+    [HttpGet]
+    public async Task&lt;IActionResult&gt; GetAll()
+        =&gt; Ok(await _mediator.Send(new GetBrandsQuery()));
+
+    [HttpGet("{id:guid}")]
+    public async Task&lt;IActionResult&gt; GetById(Guid id)
+        =&gt; Ok(await _mediator.Send(new GetBrandByIdQuery { Id = id }));
+
+    [HttpPost]
+    public async Task&lt;IActionResult&gt; Create(CreateBrandCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task&lt;IActionResult&gt; Update(Guid id, UpdateBrandCommand command)
+    {
+        command = command with { Id = id };
+        return Ok(await _mediator.Send(command));
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task&lt;IActionResult&gt; Delete(Guid id)
+    {
+        await _mediator.Send(new DeleteBrandCommand { Id = id });
+        return NoContent();
+    }
+
+    [HttpPost("bulk-delete")]
+    public async Task&lt;IActionResult&gt; BulkDelete(BulkDeleteBrandsCommand command)
+        =&gt; Ok(await _mediator.Send(command));
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Same 6 endpoints for all settings:</strong> <code>BrandsController</code>, <code>CategoriesController</code>,
+    <code>SubCategoriesController</code>, <code>UnitsController</code>, <code>WarrantiesController</code>,
+    <code>VariantAttributesController</code>. Each swaps the command/query types — the structure is identical.
+  </div>
+
+  <hr>
+
+  <h2>Part 7 — Frontend: Settings CRUD Pages (Next.js)</h2>
+
+  <p>
+    The frontend lives at <code>src/OmniBlox.Web/</code> — a Next.js 14+ App Router application.
+    Each settings feature has a dedicated page, API hook, and follows the same component patterns.
+  </p>
+
+  <h3>7a. Page Structure</h3>
+
+  <p>All settings pages are under <code>app/[workspace]/(dashboard)/settings/</code>:</p>
+
+  <table>
+    <tr><th>Page</th><th>Route</th><th>API Hook</th></tr>
+    <tr><td>Brands</td><td><code>/settings/brands</code></td><td><code>useBrandsApi()</code></td></tr>
+    <tr><td>Product Categories</td><td><code>/settings/categories</code></td><td><code>useProductCategoriesApi()</code></td></tr>
+    <tr><td>Sub Categories</td><td><code>/settings/sub-categories</code></td><td><code>useSubCategoriesApi()</code></td></tr>
+    <tr><td>Units</td><td><code>/settings/units</code></td><td><code>useUnitsApi()</code></td></tr>
+    <tr><td>Warranties</td><td><code>/settings/warranties</code></td><td><code>useWarrantiesApi()</code></td></tr>
+    <tr><td>Variant Attributes</td><td><code>/settings/variant-attributes</code></td><td><code>useVariantAttributesApi()</code></td></tr>
+  </table>
+
+  <h3>7b. API Hook Pattern — <code>useAuthenticatedApi</code></h3>
+
+  <p>Every feature hook is built on the base <code>useAuthenticatedApi()</code> which wraps
+  a generic HTTP client with auth error handling (401 → auto-logout):</p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">hooks/use-brands-api.ts — representative of all 6 hooks</div>
+    <pre>
+export interface Brand {
+  id: string;
+  name: string;
+  slug: string;
+  imageUrl?: string;
+  description?: string;
+  status: string;
+  companyId: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CreateBrandDto {
+  name: string;
+  description?: string;
+  imageUrl?: string;
+}
+
+export interface UpdateBrandDto {
+  name?: string;
+  description?: string;
+  imageUrl?: string;
+}
+
+export function useBrandsApi() {
+  const { get, post, put, del } = useAuthenticatedApi();
+
+  const getBrands = useCallback(async () =&gt;
+    get&lt;Brand[]&gt;("/brands"), []);
+
+  const getBrand = useCallback(async (id: string) =&gt;
+    get&lt;Brand&gt;(`/brands/${id}`), []);
+
+  const createBrand = useCallback(async (data: CreateBrandDto) =&gt;
+    post&lt;Brand&gt;("/brands", data), []);
+
+  const updateBrand = useCallback(async (id: string, data: UpdateBrandDto) =&gt;
+    put&lt;Brand&gt;(`/brands/${id}`, data), []);
+
+  const deleteBrand = useCallback(async (id: string) =&gt;
+    del(`/brands/${id}`), []);
+
+  const bulkDeleteBrands = useCallback(async (ids: string[]) =&gt;
+    post&lt;BulkDeleteResponse&gt;("/brands/bulk-delete", { ids }), []);
+
+  return { getBrands, getBrand, createBrand, updateBrand, deleteBrand, bulkDeleteBrands };
+}</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Hook pattern:</strong> Every feature hook follows the same template — 4 CRUD methods + bulk delete.
+    Only the entity type, DTO types, and endpoint path change. All hooks use <code>useCallback</code> for
+    referential stability. The base <code>useAuthenticatedApi()</code> handles auth, JSON headers, and errors.
+  </div>
+
+  <h3>7c. Shared Component Patterns</h3>
+
+  <p>Every settings page follows the same structure in <code>brands/page.tsx</code> (template for all 6):</p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">app/[workspace]/(dashboard)/settings/brands/page.tsx — architecture outline</div>
+    <pre>
+"use client";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useBrandsApi, Brand } from "@/hooks/use-brands-api";
+import { useAuth } from "@/contexts/auth-context";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel,
+         AlertDialogContent, AlertDialogDescription,
+         AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+
+const statusColors: Record&lt;string, string&gt; = {
+  ACTIVE: "bg-emerald-100 text-emerald-700",
+  INACTIVE: "bg-red-100 text-red-700",
+};
+
+export default function BrandsPage() {
+  const { getBrands, createBrand, updateBrand, deleteBrand, bulkDeleteBrands } = useBrandsApi();
+  const { user } = useAuth();
+  const canManage = user?.role === "OWNER" || user?.role === "ADMIN" || user?.role === "MANAGER";
+  const [brands, setBrands] = useState&lt;Brand[]&gt;([]);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState&lt;string&gt;("all");
+  const [selectedIds, setSelectedIds] = useState&lt;Set&lt;string&gt;&gt;(new Set());
+  const [dialogMode, setDialogMode] = useState&lt;"create" | "edit" | "view" | null&gt;(null);
+  const [deleteTarget, setDeleteTarget] = useState&lt;Brand | null&gt;(null);
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
+  useEffect(() =&gt; {
+    getBrands().then(setBrands);
+  }, [getBrands]);
+
+  const filtered = useMemo(() =&gt; brands.filter(b =&gt; {
+    const matchesSearch = !search || b.name.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = statusFilter === "all" || b.status === statusFilter;
+    return matchesSearch &amp;&amp; matchesStatus;
+  }), [brands, search, statusFilter]);
+
+  const paginated = useMemo(() =&gt;
+    filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page]);
+
+  // Dialogs: Create/Edit dialog, View dialog, Delete confirmation, Bulk delete
+  return (
+    &lt;div&gt;
+      {/* Header with breadcrumbs, title, and Add button (if canManage) */}
+      {/* Search bar + status filter + sort controls */}
+      {/* Table with checkbox column, name, status badge, dates, actions */}
+      {/* Pagination footer */}
+      {/* Create/Edit Dialog */}
+      {/* View Dialog */}
+      {/* Delete AlertDialog */}
+      {/* Bulk Delete AlertDialog */}
+    &lt;/div&gt;
+  );
+}</pre>
+  </div>
+
+  <h3>7d. Dialog Triad — Every Feature Has Three Dialogs</h3>
+
+  <p>Controlled by <code>dialogMode</code> state (<code>"create" | "edit" | "view" | null</code>):</p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">Create/Edit dialog — same form for both modes</div>
+    <pre>
+&lt;Dialog open={dialogMode === "create" || dialogMode === "edit"}
+        onOpenChange={(o) =&gt; !o &amp;&amp; setDialogMode(null)}&gt;
+  &lt;DialogContent&gt;
+    &lt;DialogHeader&gt;
+      &lt;DialogTitle&gt;{dialogMode === "create" ? "Create Brand" : "Edit Brand"}&lt;/DialogTitle&gt;
+    &lt;/DialogHeader&gt;
+    &lt;form onSubmit={async (e) =&gt; {
+      e.preventDefault();
+      if (dialogMode === "create") {
+        const created = await createBrand({ name, description, imageUrl });
+        setBrands(prev =&gt; [...prev, created]);
+      } else if (editTarget) {
+        const updated = await updateBrand(editTarget.id, { name, description, imageUrl });
+        setBrands(prev =&gt; prev.map(b =&gt; b.id === updated.id ? updated : b));
+      }
+      setDialogMode(null);
+    }}&gt;
+      {/* Name (required), Description (optional), ImageUrl (optional) */}
+      &lt;Button type="submit"&gt;{dialogMode === "create" ? "Create" : "Save"}&lt;/Button&gt;
+    &lt;/form&gt;
+  &lt;/DialogContent&gt;
+&lt;/Dialog&gt;</pre>
+  </div>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">Delete confirmation dialog — with cascading warning</div>
+    <pre>
+&lt;AlertDialog open={!!deleteTarget} onOpenChange={(o) =&gt; !o &amp;&amp; setDeleteTarget(null)}&gt;
+  &lt;AlertDialogContent&gt;
+    &lt;AlertDialogHeader&gt;
+      &lt;AlertDialogTitle&gt;Delete Brand&lt;/AlertDialogTitle&gt;
+      &lt;AlertDialogDescription&gt;
+        Are you sure? Products using this brand will lose their association.
+        This action cannot be undone.
+      &lt;/AlertDialogDescription&gt;
+    &lt;/AlertDialogHeader&gt;
+    &lt;AlertDialogFooter&gt;
+      &lt;AlertDialogCancel&gt;Cancel&lt;/AlertDialogCancel&gt;
+      &lt;AlertDialogAction onClick={async () =&gt; {
+        if (!deleteTarget) return;
+        await deleteBrand(deleteTarget.id);
+        setBrands(prev =&gt; prev.filter(b =&gt; b.id !== deleteTarget.id));
+        setDeleteTarget(null);
+      }}&gt;Delete&lt;/AlertDialogAction&gt;
+    &lt;/AlertDialogFooter&gt;
+  &lt;/AlertDialogContent&gt;
+&lt;/AlertDialog&gt;</pre>
+  </div>
+
+  <h3>7e. Permission Gating</h3>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">Role-based feature gating — consistent across all pages</div>
+    <pre>
+const canManage = user?.role === "OWNER"
+  || user?.role === "ADMIN"
+  || user?.role === "MANAGER";
+
+// Hides Add button, action column, and checkboxes from STAFF users:
+{canManage &amp;&amp; (
+  &lt;Button onClick={() =&gt; setDialogMode("create")}&gt;Add Brand&lt;/Button&gt;
+)}
+{canManage &amp;&amp; selectedIds.size &gt; 0 &amp;&amp; (
+  &lt;Button variant="destructive" onClick={() =&gt; setShowBulkDelete(true)}&gt;
+    Delete ({selectedIds.size})
+  &lt;/Button&gt;
+)}
+{canManage &amp;&amp; (
+  &lt;th&gt;Actions&lt;/th&gt;  {/* column header */}
+  {/* In each row: View/Edit/Delete buttons */}
+)}</pre>
+  </div>
+
+  <h3>7f. Variety Across Features</h3>
+
+  <table>
+    <tr><th>Feature</th><th>Unique Aspects</th></tr>
+    <tr><td>Brands</td><td>Has <code>imageUrl</code> field; search by name + description</td></tr>
+    <tr><td>Product Categories</td><td>Deletion checks for <code>affectedProducts</code>; "Uncategorized" can't be deleted</td></tr>
+    <tr><td>Sub Categories</td><td>Parent category dropdown filter; image preview column; unique slug per Category</td></tr>
+    <tr><td>Units</td><td>Has <code>shortName</code> column; sort by <code>productsCount</code>; search by name + shortName</td></tr>
+    <tr><td>Warranties</td><td>Duration formatting (days/months/years); no slug; search across name + description</td></tr>
+    <tr><td>Variant Attributes</td><td>Inline addition/removal of values as badges in the create/edit form</td></tr>
+  </table>
+
+  <hr>
+
+  <h2>Part 8 — DI Registration</h2>
+
+  <p>
+    With MediatR and Scrutor, the Application layer auto-discovers all handlers.
+    The only DI registration needed is:
+  </p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">Program.cs — DI registration</div>
+    <pre>
+// Infrastructure
+builder.Services.AddDbContext&lt;IApplicationDbContext, AppDbContext&gt;(options =&gt;
+    options.UseNpgsql(connectionString));
+
+// Auth
+builder.Services.AddScoped&lt;ICurrentUserService, CurrentUserService&gt;();
+
+// MediatR — scans all assemblies containing IRequest handlers
+builder.Services.AddMediatR(cfg =&gt;
+{
+    cfg.RegisterServicesFromAssemblies(
+        typeof(OmniBlox.Application.DependencyInjection).Assembly,
+        typeof(OmniBlox.Infrastructure.DependencyInjection).Assembly);
+});
+
+// FluentValidation — auto-registers all validators
+builder.Services.AddValidatorsFromAssembly(
+    typeof(OmniBlox.Application.DependencyInjection).Assembly);
+</pre>
+  </div>
+
+  <div class="callout success">
+    <strong>Zero registration per feature:</strong> You never add a line to DI when creating a new
+    settings feature or a new product operation. MediatR discovers <code>IRequestHandler&lt;&gt;</code>
+    implementations by scanning the assembly. FluentValidation discovers <code>AbstractValidator&lt;&gt;</code>
+    implementations the same way. EF Core discovers <code>IEntityTypeConfiguration&lt;&gt;</code>
+    implementations via <code>ApplyConfigurationsFromAssembly</code>. The pattern scales to 20, 50,
+    or 100 features with no boilerplate registration code.
+  </div>
+
+  <hr>
+
+  <h2>Part 9 — Migrations</h2>
+
+  <p>
+    After adding all entities and configurations, run:
+  </p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">PowerShell — add migration</div>
+    <pre>dotnet ef migrations add AddSettingsAndExtendedProducts
+    --project src\OmniBlox.Infrastructure
+    --startup-project src\OmniBlox.Api
+    --output-dir Persistence\Migrations</pre>
+  </div>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">Generated migration output (truncated)</div>
+    <pre>
+migrationBuilder.CreateTable(
+    name: "Brands",
+    columns: table =&gt; new
+    {
+        Id = table.Column&lt;Guid&gt;(type: "uuid", nullable: false),
+        Name = table.Column&lt;string&gt;(maxLength: 200, nullable: false),
+        Slug = table.Column&lt;string&gt;(maxLength: 200, nullable: false),
+        ImageUrl = table.Column&lt;string&gt;(maxLength: 500, nullable: true),
+        Description = table.Column&lt;string&gt;(maxLength: 500, nullable: true),
+        Status = table.Column&lt;int&gt;(nullable: false),
+        CompanyId = table.Column&lt;Guid&gt;(nullable: false),
+        CreatedAt = table.Column&lt;DateTime&gt;(nullable: false),
+        UpdatedAt = table.Column&lt;DateTime&gt;(nullable: true),
+    },
+    constraints: table =&gt;
+    {
+        table.PrimaryKey("PK_Brands", x =&gt; x.Id);
+        table.ForeignKey(
+            name: "FK_Brands_Companies_CompanyId",
+            column: x =&gt; x.CompanyId,
+            principalTable: "Companies",
+            principalColumn: "Id",
+            onDelete: ReferentialAction.Restrict);
+    });
+
+migrationBuilder.CreateIndex(
+    name: "IX_Brands_CompanyId_Slug",
+    table: "Brands",
+    columns: new[] { "CompanyId", "Slug" },
+    unique: true);</pre>
+  </div>
+
+  <div class="callout">
+    <strong>Index pattern:</strong> Every settings table has a unique composite index on
+    <code>(CompanyId, Slug)</code> (or <code>(CompanyId, Name)</code> for Warranties).
+    This enforces uniqueness within a tenant while allowing different tenants to have
+    the same slug — Company A's "Electronics" doesn't conflict with Company B's "Electronics".
+  </div>
+
+  <p>Apply the migration:</p>
+
+  <div class="file-panel" style="margin-bottom:1rem;">
+    <div class="file-panel-header">PowerShell — update database</div>
+    <pre>dotnet ef database update
+    --project src\OmniBlox.Infrastructure
+    --startup-project src\OmniBlox.Api</pre>
+  </div>
+
+  <hr>
+
+  <h2>Part 10 — Key Architectural Takeaways</h2>
+
+  <div class="story">
+    <div class="story-title">What makes this architecture scale</div>
+
+    <strong>1. Consistent pattern removes cognitive load</strong><br>
+    Every settings feature has the same 7 files in the same structure. Once you've seen Brands,
+    you've seen all 6. The only differences are domain-specific fields (Duration on Warranty,
+    Values on VariantAttribute, CategoryId on SubCategory).
+
+    <br><br>
+
+    <strong>2. CompanyId is invisible</strong><br>
+    Global query filters + SaveChangesAsync override mean no handler ever reads or writes
+    <code>CompanyId</code>. The code is declarative — "create brand with this name" — and
+    infrastructure handles tenancy.
+
+    <br><br>
+
+    <strong>3. Zero DI registration per feature</strong><br>
+    MediatR discovers handlers, FluentValidation discovers validators, EF Core discovers
+    configurations — all by scanning assemblies. Adding a new feature means adding files,
+    not modifying DI configuration.
+
+    <br><br>
+
+    <strong>4. Partial update via nullable merge</strong><br>
+    All update commands use nullable fields. If the client sends <code>{ "name": "New" }</code>,
+    only <code>Name</code> (and <code>Slug</code>) changes. No need for full-object PUT or
+    complex JSON Patch.
+
+    <br><br>
+
+    <strong>5. Shared patterns for common operations</strong><br>
+    <code>BulkDeleteResponse</code> + <code>FailedItem</code> are used by all bulk delete commands.
+    <code>BulkOperationResponse</code> + <code>BulkOperationError</code> are used by bulk status updates.
+    Consistent error shapes mean the frontend handles errors the same way everywhere.
+
+    <br><br>
+
+    <strong>6. Export/import is a query/command</strong><br>
+    No separate service layer. Export is a <code>Query</code> that returns <code>byte[]</code>.
+    Import is a <code>Command</code> that accepts a file. MediatR handles the dispatch, the
+    controller returns the result. Testable without HTTP.
+
+    <br><br>
+
+    <strong>7. One controller shape for all settings</strong><br>
+    BrandsController is the template. CategoriesController, UnitsController, etc. are copy-paste
+    with different types. The ProductsController extends the pattern with extra operations but
+    keeps the same 5 CRUD endpoints.
+
+    <div class="story-seq">Next: Lesson 5 — Warehouse Management &amp; Purchase Orders</div>
+  </div>
+
+  <hr>
+
+  <h2>Part 11 — Complete Source Code Reference</h2>
+
+  <p>
+    All source files from this lesson, organized by project:
+  </p>
+
+  <h3>Domain Layer (6 entities + 1 interface + 1 enum)</h3>
+  <ul>
+    <li><code>OmniBlox.Domain/Interfaces/ITenantEntity.cs</code></li>
+    <li><code>OmniBlox.Domain/Entities/Brand.cs</code></li>
+    <li><code>OmniBlox.Domain/Entities/ProductCategory.cs</code></li>
+    <li><code>OmniBlox.Domain/Entities/SubCategory.cs</code></li>
+    <li><code>OmniBlox.Domain/Entities/Unit.cs</code></li>
+    <li><code>OmniBlox.Domain/Entities/Warranty.cs</code></li>
+    <li><code>OmniBlox.Domain/Entities/VariantAttribute.cs</code></li>
+    <li><code>OmniBlox.Domain/Enums/ActiveStatus.cs</code></li>
+  </ul>
+
+  <h3>Application Layer — Brands (7 files)</h3>
+  <ul>
+    <li><code>Features/Brands/DTOs/BrandDto.cs</code></li>
+    <li><code>Features/Brands/Commands/CreateBrandCommand.cs</code></li>
+    <li><code>Features/Brands/Commands/UpdateBrandCommand.cs</code></li>
+    <li><code>Features/Brands/Commands/DeleteBrandCommand.cs</code></li>
+    <li><code>Features/Brands/Commands/BulkDeleteBrandsCommand.cs</code></li>
+    <li><code>Features/Brands/Queries/GetBrandsQuery.cs</code></li>
+    <li><code>Features/Brands/Queries/GetBrandByIdQuery.cs</code></li>
+  </ul>
+
+  <h3>Application Layer — ProductCategories (7 files)</h3>
+  <ul>
+    <li><code>Features/ProductCategories/DTOs/ProductCategoryDto.cs</code></li>
+    <li><code>Features/ProductCategories/Commands/CreateProductCategoryCommand.cs</code></li>
+    <li><code>Features/ProductCategories/Commands/UpdateProductCategoryCommand.cs</code></li>
+    <li><code>Features/ProductCategories/Commands/DeleteProductCategoryCommand.cs</code></li>
+    <li><code>Features/ProductCategories/Commands/BulkDeleteProductCategoriesCommand.cs</code></li>
+    <li><code>Features/ProductCategories/Queries/GetProductCategoriesQuery.cs</code></li>
+    <li><code>Features/ProductCategories/Queries/GetProductCategoryByIdQuery.cs</code></li>
+  </ul>
+
+  <h3>Application Layer — SubCategories (7 files)</h3>
+  <ul>
+    <li><code>Features/SubCategories/DTOs/SubCategoryDto.cs</code></li>
+    <li><code>Features/SubCategories/Commands/CreateSubCategoryCommand.cs</code></li>
+    <li><code>Features/SubCategories/Commands/UpdateSubCategoryCommand.cs</code></li>
+    <li><code>Features/SubCategories/Commands/DeleteSubCategoryCommand.cs</code></li>
+    <li><code>Features/SubCategories/Commands/BulkDeleteSubCategoriesCommand.cs</code></li>
+    <li><code>Features/SubCategories/Queries/GetSubCategoriesQuery.cs</code></li>
+    <li><code>Features/SubCategories/Queries/GetSubCategoryByIdQuery.cs</code></li>
+  </ul>
+
+  <h3>Application Layer — Units (7 files)</h3>
+  <ul>
+    <li><code>Features/Units/DTOs/UnitDto.cs</code></li>
+    <li><code>Features/Units/Commands/CreateUnitCommand.cs</code></li>
+    <li><code>Features/Units/Commands/UpdateUnitCommand.cs</code></li>
+    <li><code>Features/Units/Commands/DeleteUnitCommand.cs</code></li>
+    <li><code>Features/Units/Commands/BulkDeleteUnitsCommand.cs</code></li>
+    <li><code>Features/Units/Queries/GetUnitsQuery.cs</code></li>
+    <li><code>Features/Units/Queries/GetUnitByIdQuery.cs</code></li>
+  </ul>
+
+  <h3>Application Layer — Warranties (7 files)</h3>
+  <ul>
+    <li><code>Features/Warranties/DTOs/WarrantyDto.cs</code></li>
+    <li><code>Features/Warranties/Commands/CreateWarrantyCommand.cs</code></li>
+    <li><code>Features/Warranties/Commands/UpdateWarrantyCommand.cs</code></li>
+    <li><code>Features/Warranties/Commands/DeleteWarrantyCommand.cs</code></li>
+    <li><code>Features/Warranties/Commands/BulkDeleteWarrantiesCommand.cs</code></li>
+    <li><code>Features/Warranties/Queries/GetWarrantiesQuery.cs</code></li>
+    <li><code>Features/Warranties/Queries/GetWarrantyByIdQuery.cs</code></li>
+  </ul>
+
+  <h3>Application Layer — VariantAttributes (7 files)</h3>
+  <ul>
+    <li><code>Features/VariantAttributes/DTOs/VariantAttributeDto.cs</code></li>
+    <li><code>Features/VariantAttributes/Commands/CreateVariantAttributeCommand.cs</code></li>
+    <li><code>Features/VariantAttributes/Commands/UpdateVariantAttributeCommand.cs</code></li>
+    <li><code>Features/VariantAttributes/Commands/DeleteVariantAttributeCommand.cs</code></li>
+    <li><code>Features/VariantAttributes/Commands/BulkDeleteVariantAttributesCommand.cs</code></li>
+    <li><code>Features/VariantAttributes/Queries/GetVariantAttributesQuery.cs</code></li>
+    <li><code>Features/VariantAttributes/Queries/GetVariantAttributeByIdQuery.cs</code></li>
+  </ul>
+
+  <h3>Application Layer — Products Extended (6 files)</h3>
+  <ul>
+    <li><code>Features/Products/Commands/UpdateStockCommand.cs</code></li>
+    <li><code>Features/Products/Commands/BulkUpdateProductsStatusCommand.cs</code></li>
+    <li><code>Features/Products/Commands/ImportProductsCommand.cs</code></li>
+    <li><code>Features/Products/Queries/ExportProductsQuery.cs</code></li>
+    <li><code>Features/Products/Queries/GetProductStatsQuery.cs</code></li>
+    <li><code>Features/Products/DTOs/ProductStatsDto.cs</code></li>
+  </ul>
+
+  <h3>Infrastructure Layer (6 EF Configs + AppDbContext updates)</h3>
+  <ul>
+    <li><code>Persistence/Configurations/BrandConfiguration.cs</code></li>
+    <li><code>Persistence/Configurations/ProductCategoryConfiguration.cs</code></li>
+    <li><code>Persistence/Configurations/SubCategoryConfiguration.cs</code></li>
+    <li><code>Persistence/Configurations/UnitConfiguration.cs</code></li>
+    <li><code>Persistence/Configurations/WarrantyConfiguration.cs</code></li>
+    <li><code>Persistence/Configurations/VariantAttributeConfiguration.cs</code></li>
+    <li><code>Persistence/AppDbContext.cs</code> (updated with DbSets)</li>
+  </ul>
+
+  <h3>API Layer (7 controllers)</h3>
+  <ul>
+    <li><code>Controllers/ProductsController.cs</code></li>
+    <li><code>Controllers/BrandsController.cs</code></li>
+    <li><code>Controllers/CategoriesController.cs</code></li>
+    <li><code>Controllers/SubCategoriesController.cs</code></li>
+    <li><code>Controllers/UnitsController.cs</code></li>
+    <li><code>Controllers/WarrantiesController.cs</code></li>
+    <li><code>Controllers/VariantAttributesController.cs</code></li>
+  </ul>
+
+  <div class="callout success">
+    <strong>Total: 7 entities, 42 application files, 6 EF configs, 7 controllers = 62 files</strong>
+    implementing 6 settings features + 1 extended products feature. All auto-discovered by MediatR,
+    FluentValidation, and EF Core. Zero manual DI registration per feature.
+  </div>
+
+  <hr>
+
+  <p class="lesson-nav">
+    <a href="0003-jwt-authentication.html">← Previous: JWT Authentication</a> |
+    <a href="0005-warehouse-and-purchase-orders.html">Next: Warehouse Management →</a>
+  </p>
+
+</body>
+</html>

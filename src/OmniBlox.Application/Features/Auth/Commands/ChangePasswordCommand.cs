@@ -49,6 +49,6 @@ public class ChangePasswordCommandValidator : AbstractValidator<ChangePasswordCo
 
         RuleFor(v => v.NewPassword)
             .NotEmpty().WithMessage("New password is required.")
-            .MinimumLength(8).WithMessage("New password must be at least 8 characters.");
+            .MinimumLength(6).WithMessage("New password must be at least 6 characters.");
     }
 }

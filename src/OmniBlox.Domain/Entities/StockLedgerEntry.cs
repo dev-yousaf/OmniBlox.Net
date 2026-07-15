@@ -10,6 +10,7 @@ public class StockLedgerEntry : BaseEntity, Interfaces.ITenantEntity
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
     public Guid? WarehouseId { get; set; }
+    public Warehouse? Warehouse { get; set; }
     public Guid CompanyId { get; set; }
     public Company Company { get; set; } = null!;
 }

@@ -1,0 +1,2 @@
+D:\OmniBlox DotNet\src\OmniBlox.Api\Extensions\ClaimsPrincipalExtensions.cs(10,27): warning CS8604: Possible null reference argument for parameter 'input' in 'Guid Guid.Parse(string input)'. [D:\OmniBlox DotNet\src\OmniBlox.Api\OmniBlox.Api.csproj]
+D:\OmniBlox DotNet\src\OmniBlox.Api\Extensions\ClaimsPrincipalExtensions.cs(16,27): warning CS8604: Possible null reference argument for parameter 'input' in 'Guid Guid.Parse(string input)'. [D:\OmniBlox DotNet\src\OmniBlox.Api\OmniBlox.Api.csproj]

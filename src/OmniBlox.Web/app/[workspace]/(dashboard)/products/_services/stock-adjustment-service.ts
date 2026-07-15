@@ -48,20 +48,95 @@ export function useStockAdjustmentService() {
   const createStockAdjustment = useCallback(async (
     payload: CreateStockAdjustmentPayload
   ): Promise<StockAdjustmentResponse> => {
-    const response = await post("/products/adjustments", payload);
-    return response as StockAdjustmentResponse;
+    const response: any = await post("/inventory/adjustments", payload);
+    // Map backend StockAdjustmentDto -> frontend StockAdjustmentResponse
+    return {
+      id: response.id,
+      referenceNumber: response.referenceNumber,
+      adjustmentDate: response.adjustmentDate,
+      notes: response.notes,
+      type: response.type,
+      totalItems: response.totalItems,
+      netChange: response.netChange,
+      createdAt: response.createdAt,
+      updatedAt: response.createdAt,
+      userId: response.user?.id || "",
+      userName: response.user?.name || "",
+      items: (response.items || []).map((i: any) => ({
+        id: i.id,
+        previousQuantity: i.previousQuantity,
+        newQuantity: i.newQuantity,
+        difference: i.difference,
+        productId: i.productId,
+        productName: i.productName,
+        productSku: i.productSku,
+        productImage: i.productImage,
+        warehouseId: i.warehouseId,
+        warehouseName: i.warehouseName,
+      })),
+    } as StockAdjustmentResponse;
   }, [post]);
 
   const getStockAdjustments = useCallback(async (): Promise<StockAdjustmentResponse[]> => {
-    const response = await get("/products/adjustments");
-    return response as StockAdjustmentResponse[];
+    const response: any = await get("/inventory/adjustments?limit=20");
+    // Backend returns { adjustments: [...], total, pages }
+    const list = response.adjustments || response || [];
+    return (Array.isArray(list) ? list : []).map((adj: any) => ({
+      id: adj.id,
+      referenceNumber: adj.referenceNumber,
+      adjustmentDate: adj.adjustmentDate,
+      notes: adj.notes,
+      type: adj.type,
+      totalItems: adj.totalItems,
+      netChange: adj.netChange,
+      createdAt: adj.createdAt,
+      updatedAt: adj.createdAt,
+      userId: adj.user?.id || "",
+      userName: adj.user?.name || "",
+      items: (adj.items || []).map((i: any) => ({
+        id: i.id,
+        previousQuantity: i.previousQuantity,
+        newQuantity: i.newQuantity,
+        difference: i.difference,
+        productId: i.productId,
+        productName: i.productName,
+        productSku: i.productSku,
+        productImage: i.productImage,
+        warehouseId: i.warehouseId,
+        warehouseName: i.warehouseName,
+      })),
+    }));
   }, [get]);
 
   const getStockAdjustment = useCallback(async (
     id: string
   ): Promise<StockAdjustmentResponse> => {
-    const response = await get(`/products/adjustments/${id}`);
-    return response as StockAdjustmentResponse;
+    const response: any = await get(`/inventory/adjustments/${id}`);
+    return {
+      id: response.id,
+      referenceNumber: response.referenceNumber,
+      adjustmentDate: response.adjustmentDate,
+      notes: response.notes,
+      type: response.type,
+      totalItems: response.totalItems,
+      netChange: response.netChange,
+      createdAt: response.createdAt,
+      updatedAt: response.createdAt,
+      userId: response.user?.id || "",
+      userName: response.user?.name || "",
+      items: (response.items || []).map((i: any) => ({
+        id: i.id,
+        previousQuantity: i.previousQuantity,
+        newQuantity: i.newQuantity,
+        difference: i.difference,
+        productId: i.productId,
+        productName: i.productName,
+        productSku: i.productSku,
+        productImage: i.productImage,
+        warehouseId: i.warehouseId,
+        warehouseName: i.warehouseName,
+      })),
+    } as StockAdjustmentResponse;
   }, [get]);
 
   return {

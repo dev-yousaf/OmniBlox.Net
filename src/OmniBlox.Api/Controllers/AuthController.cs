@@ -32,6 +32,7 @@ public class AuthController : ControllerBase
             CompanyName = request.CompanyName,
             WorkspaceUrl = request.WorkspaceUrl,
             Industry = request.Industry,
+            OtherIndustry = request.OtherIndustry,
             Country = request.Country,
         };
 
@@ -79,13 +80,14 @@ public class AuthController : ControllerBase
         UpdateProfileRequest request,
         CancellationToken ct)
     {
-        var command = new UpdateProfileCommand
-        {
-            Name = request.Name,
-            CompanyName = request.CompanyName,
-            Industry = request.Industry,
-            Country = request.Country,
-        };
+    var command = new UpdateProfileCommand
+    {
+        Name = request.Name,
+        CompanyName = request.CompanyName,
+        Industry = request.Industry,
+        OtherIndustry = request.OtherIndustry,
+        Country = request.Country,
+    };
 
         var result = await _mediator.Send(command, ct);
         return Ok(result);
@@ -132,6 +134,7 @@ public record UpdateProfileRequest
     public string? Name { get; init; }
     public string? CompanyName { get; init; }
     public string? Industry { get; init; }
+    public string? OtherIndustry { get; init; }
     public string? Country { get; init; }
 }
 

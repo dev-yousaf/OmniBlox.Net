@@ -3,6 +3,7 @@ namespace OmniBlox.Application.Features.Auth.DTOs;
 public record AuthResponse
 {
     public string Token { get; init; } = string.Empty;
+    public Guid UserId => User?.Id ?? Guid.Empty;
     public UserDto User { get; init; } = null!;
     public CompanyDto Company { get; init; } = null!;
 }
@@ -23,5 +24,6 @@ public record CompanyDto
     public string Name { get; init; } = string.Empty;
     public string WorkspaceUrl { get; init; } = string.Empty;
     public string? Industry { get; init; }
+    public string? OtherIndustry { get; init; }
     public string? Country { get; init; }
 }
