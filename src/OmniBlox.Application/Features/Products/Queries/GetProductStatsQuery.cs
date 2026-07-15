@@ -1,19 +1,12 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Products.DTOs;
 using OmniBlox.Domain.Enums;
 
 namespace OmniBlox.Application.Features.Products.Queries;
 
 public record GetProductStatsQuery : IRequest<ProductStatsResponse>;
-
-public record ProductStatsResponse
-{
-    public int TotalProducts { get; init; }
-    public int LowStockCount { get; init; }
-    public decimal TotalValue { get; init; }
-    public int CategoriesCount { get; init; }
-}
 
 public class GetProductStatsQueryHandler : IRequestHandler<GetProductStatsQuery, ProductStatsResponse>
 {

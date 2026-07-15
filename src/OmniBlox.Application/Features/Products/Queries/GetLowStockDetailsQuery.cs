@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Products.DTOs;
 using OmniBlox.Domain.Enums;
 
 namespace OmniBlox.Application.Features.Products.Queries;
@@ -9,24 +10,6 @@ public record GetLowStockDetailsQuery : IRequest<LowStockDetailsResponse>
 {
     public int Page { get; init; } = 1;
     public int Limit { get; init; } = 20;
-}
-
-public record LowStockDetailItem
-{
-    public Guid ProductId { get; init; }
-    public string ProductName { get; init; } = string.Empty;
-    public string Sku { get; init; } = string.Empty;
-    public string? ImageUrl { get; init; }
-    public string Category { get; init; } = string.Empty;
-    public int Quantity { get; init; }
-    public int AlertQuantity { get; init; }
-}
-
-public record LowStockDetailsResponse
-{
-    public List<LowStockDetailItem> Items { get; init; } = [];
-    public int Total { get; init; }
-    public int Pages { get; init; }
 }
 
 public class GetLowStockDetailsQueryHandler : IRequestHandler<GetLowStockDetailsQuery, LowStockDetailsResponse>
