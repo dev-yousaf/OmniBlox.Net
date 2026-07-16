@@ -157,8 +157,7 @@ public class UpdateSalesReturnStatusCommandValidator : AbstractValidator<UpdateS
     public UpdateSalesReturnStatusCommandValidator()
     {
         RuleFor(x => x.Id).NotEmpty();
-        RuleFor(x => x.Status).NotEmpty()
-            .Must(s => s is "COMPLETED" or "CANCELLED")
-            .WithMessage("Status must be COMPLETED or CANCELLED.");
+        RuleFor(x => x.Status).NotEmpty().Must(s =>
+            s == "PENDING" || s == "PROCESSING" || s == "COMPLETED" || s == "CANCELLED");
     }
 }
