@@ -119,7 +119,7 @@ export default function NewSalePage() {
   const router = useRouter();
   const ws = useWorkspace();
   const { getProducts } = useProductApi();
-  const { getWarehouses } = useInventoryApi();
+  const { getWarehouses, getWarehouseInventory } = useInventoryApi();
   const { getCustomers, createCustomer } = useCustomersApi();
   const { createSale } = useSalesService();
 
@@ -130,6 +130,8 @@ export default function NewSalePage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [warehousesLoading, setWarehousesLoading] = useState(true);
   const [warehousesError, setWarehousesError] = useState<string | null>(null);
+
+  const [warehouseStockMap, setWarehouseStockMap] = useState<Record<string, number>>({});
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customersLoading, setCustomersLoading] = useState(false);
@@ -207,6 +209,34 @@ export default function NewSalePage() {
     };
   }, [getProducts, getWarehouses, getCustomers]);
 
+  useEffect(() => {
+    if (!formData.warehouseId) {
+      setWarehouseStockMap({});
+      return;
+    }
+
+    const load = async () => {
+      try {
+        const data = await getWarehouseInventory(formData.warehouseId);
+        const map: Record<string, number> = {};
+        data.inventory.forEach((item) => {
+          map[item.productId] = item.quantity;
+        });
+        setWarehouseStockMap(map);
+      } catch {
+        setWarehouseStockMap({});
+      }
+    };
+    load();
+  }, [formData.warehouseId, getWarehouseInventory]);
+
+  const getProductStock = (productId: string): number => {
+    if (formData.warehouseId && warehouseStockMap[productId] !== undefined) {
+      return warehouseStockMap[productId];
+    }
+    return products.find((p) => p.id === productId)?.stock ?? 0;
+  };
+
   const currencyFormatter = useMemo(
     () =>
       new Intl.NumberFormat("en-US", {
@@ -263,11 +293,16 @@ export default function NewSalePage() {
           if (product) {
             next.productName = product.name;
             next.unitPrice = Number(product.salePrice) || 0;
+            const maxQty = getProductStock(value);
+            if (next.quantity > maxQty) {
+              next.quantity = Math.max(1, maxQty);
+            }
           }
         }
 
         if (field === "quantity" && typeof value === "number") {
-          next.quantity = Math.max(1, Math.floor(value));
+          const maxQty = getProductStock(item.productId) || 999999;
+          next.quantity = Math.max(1, Math.min(Math.floor(value), maxQty));
         }
 
         if (field === "unitPrice" && typeof value === "number") {
@@ -366,6 +401,14 @@ export default function NewSalePage() {
       return;
     }
 
+    const overstockItem = items.find((item) => item.quantity > getProductStock(item.productId));
+    if (overstockItem) {
+      setSubmitError(
+        `Quantity for "${overstockItem.productName}" exceeds available stock.`
+      );
+      return;
+    }
+
     if (discount > subtotal + taxAmount) {
       setSubmitError("Discount cannot exceed the invoice total.");
       return;
@@ -376,10 +419,7 @@ export default function NewSalePage() {
 
     try {
       const payload = {
-        customer: {
-          name: formData.customerName.trim(),
-          email: formData.customerEmail.trim(),
-        },
+        customerId: formData.customerId,
         warehouseId: formData.warehouseId,
         saleDate: new Date(formData.date).toISOString(),
         dueDate: new Date(formData.dueDate).toISOString(),
@@ -839,16 +879,30 @@ export default function NewSalePage() {
                                     value={product.id}
                                   >
                                     {product.name}
+                                    <span className="ml-2 text-[11px] text-muted-foreground">
+                                      (Stock: {getProductStock(product.id)})
+                                    </span>
                                   </SelectItem>
                                 ))}
                             </SelectContent>
                           </Select>
+                          {item.productId && (() => {
+                            const stock = getProductStock(item.productId);
+                            const lowStock = item.quantity > stock;
+                            return (
+                              <p className={`text-[11px] ${lowStock ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                                Available: {stock}
+                                {lowStock && " — Quantity exceeds stock!"}
+                              </p>
+                            );
+                          })()}
                         </div>
                         <div className="space-y-2">
                           <Label className="text-xs font-medium">Quantity</Label>
                           <Input
                             type="number"
                             min={1}
+                            max={getProductStock(item.productId) || 999999}
                             value={item.quantity}
                             onChange={(event) =>
                               updateItem(
@@ -857,7 +911,7 @@ export default function NewSalePage() {
                                 Number(event.target.value) || 0
                               )
                             }
-                            className="h-[34px] rounded-[5px] text-sm"
+                            className={`h-[34px] rounded-[5px] text-sm ${item.productId && getProductStock(item.productId) < item.quantity ? "border-destructive" : ""}`}
                           />
                         </div>
                         <div className="space-y-2">

@@ -23,7 +23,6 @@ public record UpdateProductCommand : IRequest<ProductDto>
     public string? ImageUrl { get; init; }
     public decimal? SalePrice { get; init; }
     public decimal? CostPrice { get; init; }
-    public int? Stock { get; init; }
     public int? ReorderLevel { get; init; }
     public string? Status { get; init; }
     public string? BarcodeSymbology { get; init; }
@@ -74,7 +73,6 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         if (request.ImageUrl is not null) product.ImageUrl = request.ImageUrl;
         if (request.SalePrice.HasValue) product.SalePrice = request.SalePrice.Value;
         if (request.CostPrice.HasValue) product.CostPrice = request.CostPrice.Value;
-        if (request.Stock.HasValue) product.Stock = request.Stock.Value;
         if (request.ReorderLevel.HasValue) product.ReorderLevel = request.ReorderLevel.Value;
         if (request.Status is not null && Enum.TryParse<ProductStatus>(request.Status, true, out var status))
             product.Status = status;
@@ -118,9 +116,6 @@ public class UpdateProductCommandValidator : AbstractValidator<UpdateProductComm
 
         RuleFor(v => v.CostPrice)
             .GreaterThanOrEqualTo(0).When(v => v.CostPrice.HasValue);
-
-        RuleFor(v => v.Stock)
-            .GreaterThanOrEqualTo(0).When(v => v.Stock.HasValue);
 
         RuleFor(v => v.ReorderLevel)
             .GreaterThanOrEqualTo(0).When(v => v.ReorderLevel.HasValue);

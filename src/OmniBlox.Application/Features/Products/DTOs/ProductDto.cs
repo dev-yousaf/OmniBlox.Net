@@ -18,6 +18,7 @@ public record ProductDto
     public decimal CostPrice { get; init; }
     public int Stock { get; init; }
     public int ReorderLevel { get; init; }
+    public Guid? WarehouseId { get; init; }
     public string Status { get; init; } = string.Empty;
     public string? BarcodeSymbology { get; init; }
     public decimal? TaxRate { get; init; }
@@ -30,7 +31,7 @@ public record ProductDto
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
 
-    public static ProductDto FromEntity(Product product) => new()
+    public static ProductDto FromEntity(Product product, Guid? warehouseId = null) => new()
     {
         Id = product.Id,
         Name = product.Name,
@@ -46,6 +47,7 @@ public record ProductDto
         CostPrice = product.CostPrice,
         Stock = product.Stock,
         ReorderLevel = product.ReorderLevel,
+        WarehouseId = warehouseId,
         Status = product.Status.ToString(),
         BarcodeSymbology = product.BarcodeSymbology,
         TaxRate = product.TaxRate,

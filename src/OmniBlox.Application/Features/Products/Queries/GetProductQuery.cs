@@ -15,20 +15,27 @@ public record GetProductQuery : IRequest<ProductDto>
 public class GetProductQueryHandler : IRequestHandler<GetProductQuery, ProductDto>
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
 
-    public GetProductQueryHandler(IApplicationDbContext context)
+    public GetProductQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
     {
         _context = context;
+        _currentUser = currentUser;
     }
 
     public async Task<ProductDto> Handle(GetProductQuery request, CancellationToken ct)
     {
         var product = await _context.Products
-            .FirstOrDefaultAsync(p => p.Id == request.Id, ct);
+            .FirstOrDefaultAsync(p => p.Id == request.Id && p.CompanyId == _currentUser.CompanyId, ct);
 
         if (product is null)
             throw new NotFoundException(nameof(Product), request.Id);
 
-        return ProductDto.FromEntity(product);
+        var warehouseId = await _context.Inventories
+            .Where(i => i.ProductId == product.Id)
+            .Select(i => (Guid?)i.WarehouseId)
+            .FirstOrDefaultAsync(ct);
+
+        return ProductDto.FromEntity(product, warehouseId);
     }
 }

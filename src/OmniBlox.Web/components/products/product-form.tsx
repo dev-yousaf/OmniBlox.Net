@@ -282,7 +282,9 @@ const ProductForm = forwardRef<HTMLFormElement, ProductFormProps>(
       manufacturedDate: initialData?.manufacturedDate || "",
       expiryDate: initialData?.expiryDate || "",
     });
-    const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
+    const [selectedWarehouseId, setSelectedWarehouseId] = useState(
+        isEdit && initialData && "warehouseId" in initialData ? (initialData as any).warehouseId || "" : ""
+    );
 
     useEffect(() => {
       const loadData = async () => {
@@ -812,11 +814,13 @@ const ProductForm = forwardRef<HTMLFormElement, ProductFormProps>(
               <FormField label="Quantity" required fieldName="stock" error={errors.stock} className="flex-1">
                 <Input type="number" placeholder="0" value={formData.stock}
                   onChange={(e) => handleInputChange("stock", e.target.value)}
+                  disabled={isEdit}
                   className="h-[38px] rounded-[5px] px-3 py-[7px] text-[14px]" />
+                {isEdit && <p className="text-[11px] text-muted-foreground mt-1">Use Stock Management to update quantity</p>}
               </FormField>
               {!hideWarehouse && (
                 <FormField label="Warehouse" className="flex-1">
-                  <Select value={selectedWarehouseId} onValueChange={setSelectedWarehouseId}>
+                  <Select value={selectedWarehouseId} onValueChange={setSelectedWarehouseId} disabled={isEdit}>
                     <SelectTrigger className="h-[38px] rounded-[5px] px-3 py-[7px] text-[14px]">
                       <SelectValue placeholder="Select" />
                     </SelectTrigger>
@@ -828,7 +832,7 @@ const ProductForm = forwardRef<HTMLFormElement, ProductFormProps>(
                       )}
                     </SelectContent>
                   </Select>
-                  <p className="text-[11px] text-muted-foreground mt-1">Stock will be assigned to this warehouse</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">{isEdit ? "Warehouse cannot be changed after creation" : "Stock will be assigned to this warehouse"}</p>
                 </FormField>
               )}
               <FormField label="Price" required fieldName="salePrice" error={errors.salePrice} className="flex-1">

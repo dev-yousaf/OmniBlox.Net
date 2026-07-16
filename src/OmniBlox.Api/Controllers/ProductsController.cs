@@ -86,7 +86,7 @@ public class ProductsController : ControllerBase
             Category = request.Category, SubCategory = request.SubCategory,
             Brand = request.Brand, Unit = request.Unit, ImageUrl = request.ImageUrl,
             SalePrice = request.SalePrice, CostPrice = request.CostPrice,
-            Stock = request.Stock, ReorderLevel = request.ReorderLevel,
+            ReorderLevel = request.ReorderLevel,
             Status = request.Status, BarcodeSymbology = request.BarcodeSymbology,
             TaxRate = request.TaxRate, AlertQuantity = request.AlertQuantity,
             ItemCode = request.ItemCode, Manufacturer = request.Manufacturer,

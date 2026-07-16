@@ -13,7 +13,6 @@ public record UpdateProductRequest
     public string? ImageUrl { get; init; }
     public decimal? SalePrice { get; init; }
     public decimal? CostPrice { get; init; }
-    public int? Stock { get; init; }
     public int? ReorderLevel { get; init; }
     public string? Status { get; init; }
     public string? BarcodeSymbology { get; init; }

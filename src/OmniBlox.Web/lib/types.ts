@@ -23,6 +23,7 @@ export interface Product {
   costPrice: number
   stock: number
   reorderLevel: number
+  warehouseId?: string | null
   status: "ACTIVE" | "INACTIVE" | "DISCONTINUED"
   comboItems?: ComboItem[]
   createdBy?: { id: string; name: string; image?: string | null } | null
