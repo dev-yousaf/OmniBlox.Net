@@ -91,7 +91,7 @@ public class UpdateSalesReturnStatusCommandHandler : IRequestHandler<UpdateSales
             if (salesReturn.Sale is not null)
                 salesReturn.Sale.HasReturns = salesReturn.Sale.Items.Any(si => si.ReturnedQuantity > 0);
         }
-        else if (oldStatus == "PENDING" && request.Status == "COMPLETED")
+        else if ((oldStatus == "PENDING" || oldStatus == "PROCESSING") && request.Status == "COMPLETED")
         {
             foreach (var item in salesReturn.Items)
             {

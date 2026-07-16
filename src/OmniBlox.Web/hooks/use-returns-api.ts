@@ -37,6 +37,7 @@ export interface SalesReturn {
     location?: string;
   };
   items?: ReturnItem[];
+  itemCount?: number;
   saleInvoiceNumber?: string;
   warehouseName?: string;
 }
@@ -69,6 +70,7 @@ export interface PurchaseReturn {
     email?: string;
   };
   items?: ReturnItem[];
+  itemCount?: number;
   supplierName?: string;
   warehouseName?: string;
   purchaseOrderReference?: string;
