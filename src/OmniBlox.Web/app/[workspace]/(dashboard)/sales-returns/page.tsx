@@ -202,7 +202,7 @@ export default function SalesReturnsPage() {
                     <td className="px-5 text-muted-foreground">
                       {format(new Date(r.returnDate), "MMM dd, yyyy")}
                     </td>
-                    <td className="px-5 text-right tabular-nums">{r.items.length}</td>
+                    <td className="px-5 text-right tabular-nums">{r.items?.length ?? 0}</td>
                     <td className="px-5 text-right font-medium tabular-nums">
                       {formatCurrency.format(Number(r.totalAmount))}
                     </td>

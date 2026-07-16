@@ -74,7 +74,7 @@ export default function PurchaseReturnsPage() {
       r.referenceNumber,
       r.supplier?.name || "",
       format(new Date(r.returnDate), "MMM dd, yyyy"),
-      String(r.items.length),
+      String(r.items?.length ?? 0),
       Number(r.totalAmount).toFixed(2),
       statusConfig[r.status]?.label || r.status,
     ]);
@@ -206,7 +206,7 @@ export default function PurchaseReturnsPage() {
                     <td className="px-5 text-muted-foreground">
                       {format(new Date(r.returnDate), "MMM dd, yyyy")}
                     </td>
-                    <td className="px-5 text-right tabular-nums">{r.items.length}</td>
+                    <td className="px-5 text-right tabular-nums">{r.items?.length ?? 0}</td>
                     <td className="px-5 text-right font-medium tabular-nums">
                       {formatCurrency.format(Number(r.totalAmount))}
                     </td>

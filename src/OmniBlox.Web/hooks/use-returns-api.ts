@@ -22,21 +22,23 @@ export interface SalesReturn {
   reason?: string;
   status: "PENDING" | "PROCESSING" | "COMPLETED" | "CANCELLED";
   warehouseId: string;
-  saleId?: string; // Reference to original sale
+  saleId?: string;
   returnDate: string;
   createdAt: string;
   updatedAt: string;
-  user: {
+  user?: {
     id: string;
     name: string;
     email: string;
   };
-  warehouse: {
+  warehouse?: {
     id: string;
     name: string;
     location?: string;
   };
-  items: ReturnItem[];
+  items?: ReturnItem[];
+  saleInvoiceNumber?: string;
+  warehouseName?: string;
 }
 
 export interface PurchaseReturn {
@@ -47,26 +49,29 @@ export interface PurchaseReturn {
   status: "PENDING" | "PROCESSING" | "COMPLETED" | "CANCELLED";
   warehouseId: string;
   supplierId: string;
-  purchaseOrderId?: string; // Reference to original purchase order
+  purchaseOrderId?: string;
   returnDate: string;
   createdAt: string;
   updatedAt: string;
-  user: {
+  user?: {
     id: string;
     name: string;
     email: string;
   };
-  warehouse: {
+  warehouse?: {
     id: string;
     name: string;
     location?: string;
   };
-  supplier: {
+  supplier?: {
     id: string;
     name: string;
     email?: string;
   };
-  items: ReturnItem[];
+  items?: ReturnItem[];
+  supplierName?: string;
+  warehouseName?: string;
+  purchaseOrderReference?: string;
 }
 
 export interface UnifiedReturn
