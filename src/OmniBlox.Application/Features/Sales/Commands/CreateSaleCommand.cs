@@ -105,7 +105,6 @@ public class CreateSaleCommandHandler : IRequestHandler<CreateSaleCommand, SaleD
         }).ToList();
 
         _context.Sales.Add(sale);
-        await _context.SaveChangesAsync(ct);
 
         if (sale.Status == "COMPLETED")
         {
@@ -114,6 +113,8 @@ public class CreateSaleCommandHandler : IRequestHandler<CreateSaleCommand, SaleD
                 await DecrementInventory(item.ProductId, item.Quantity, request.WarehouseId, invoiceNumber, ct);
             }
         }
+
+        await _context.SaveChangesAsync(ct);
 
         var result = await _context.Sales
             .Include(s => s.Customer)
