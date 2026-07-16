@@ -38,7 +38,7 @@ export default function PurchaseReturnsPage() {
       setLoading(true);
       setError(null);
       const data = await getPurchaseReturns();
-      setReturns(data);
+      setReturns(Array.isArray(data) ? data : (data as any).returns || []);
     } catch (err: any) {
       setError(err.message || "Failed to load purchase returns");
     } finally {

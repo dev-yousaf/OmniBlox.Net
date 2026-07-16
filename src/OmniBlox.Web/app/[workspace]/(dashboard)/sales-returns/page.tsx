@@ -38,7 +38,7 @@ export default function SalesReturnsPage() {
       setLoading(true);
       setError(null);
       const data = await getSalesReturns();
-      setReturns(data);
+      setReturns(Array.isArray(data) ? data : (data as any).returns || []);
     } catch (err: any) {
       setError(err.message || "Failed to load sales returns");
     } finally {
