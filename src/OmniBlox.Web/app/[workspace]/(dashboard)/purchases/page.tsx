@@ -55,8 +55,8 @@ export default function PurchasesPage() {
     const q = search.toLowerCase();
     return purchases.filter((p) =>
       p.referenceNumber.toLowerCase().includes(q) ||
-      p.supplier?.name.toLowerCase().includes(q) ||
-      p.warehouse?.name?.toLowerCase().includes(q)
+                      p.supplierName?.toLowerCase().includes(q) ||
+                      p.warehouseName?.toLowerCase().includes(q)
     );
   }, [purchases, search]);
 
@@ -231,9 +231,9 @@ export default function PurchasesPage() {
                       </Link>
                     </td>
                     <td className="px-5">
-                      <span className="font-medium text-foreground">{p.supplier?.name || "—"}</span>
+                      <span className="font-medium text-foreground">{p.supplierName || "—"}</span>
                     </td>
-                    <td className="px-5 text-muted-foreground">{p.warehouse?.name || "—"}</td>
+                    <td className="px-5 text-muted-foreground">{p.warehouseName || "—"}</td>
                     <td className="px-5 text-muted-foreground">
                       {format(new Date(p.orderDate), "MMM dd, yyyy")}
                     </td>

@@ -194,7 +194,7 @@ export default function SupplierDetailPage() {
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Last Updated</p>
-            <p className="text-sm font-semibold mt-0.5">{format(new Date(supplier.updatedAt), "MMM dd, yyyy h:mm a")}</p>
+            <p className="text-sm font-semibold mt-0.5">{supplier.updatedAt ? format(new Date(supplier.updatedAt), "MMM dd, yyyy h:mm a") : "—"}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Credit Limit</p>

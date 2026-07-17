@@ -77,7 +77,7 @@ export default function SupplierDetailPage() {
         setSupplier(supplierData);
         setPurchases(
           Array.isArray(purchasesData)
-            ? purchasesData.filter((p) => p.supplier?.id === supplierId)
+            ? purchasesData.filter((p) => p.supplierId === supplierId)
             : []
         );
       } catch (err) {

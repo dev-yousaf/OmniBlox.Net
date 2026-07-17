@@ -11,6 +11,7 @@ export interface Supplier {
   address: string | null;
   status: string;
   createdAt: string;
+  updatedAt?: string | null;
   creditLimit?: number;
   balance?: number;
 }

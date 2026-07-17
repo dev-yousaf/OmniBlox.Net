@@ -88,8 +88,9 @@ export function usePurchasesApi() {
   const { get, post, put, patch } = useAuthenticatedApi();
 
   const list = useCallback(async (): Promise<PurchaseOrder[]> => {
-    const res = (await get("/purchases")) as PurchaseOrder[];
-    return Array.isArray(res) ? res : [];
+    const res: any = await get("/purchases");
+    if (Array.isArray(res)) return res as PurchaseOrder[];
+    return (res?.purchases ?? []) as PurchaseOrder[];
   }, [get]);
 
   const getById = useCallback(async (id: string): Promise<PurchaseOrder> => {
