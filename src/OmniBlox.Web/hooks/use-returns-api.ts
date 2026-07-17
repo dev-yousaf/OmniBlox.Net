@@ -6,9 +6,12 @@ import { useCallback } from "react";
 export interface ReturnItem {
   id: string;
   productId: string;
+  productName?: string;
+  productSku?: string;
   quantity: number;
-  unitPrice: number | string;
-  product: {
+  unitCost: number;
+  total?: number;
+  product?: {
     id: string;
     name: string;
     sku: string;
@@ -109,7 +112,7 @@ export interface CreatePurchaseReturnDto {
   items: Array<{
     productId: string;
     quantity: number;
-    unitPrice: number;
+    unitCost: number;
     purchaseOrderItemId?: string;
   }>;
 }

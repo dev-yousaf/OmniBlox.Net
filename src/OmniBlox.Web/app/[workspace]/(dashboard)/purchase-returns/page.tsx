@@ -54,7 +54,7 @@ export default function PurchaseReturnsPage() {
     return returns.filter((r) =>
       r.referenceNumber.toLowerCase().includes(q) ||
       r.reason?.toLowerCase().includes(q) ||
-      r.supplier?.name.toLowerCase().includes(q)
+      (r.supplierName || r.supplier?.name || "").toLowerCase().includes(q)
     );
   }, [returns, search]);
 
@@ -202,7 +202,7 @@ export default function PurchaseReturnsPage() {
                         {r.referenceNumber}
                       </Link>
                     </td>
-                    <td className="px-5 font-medium text-foreground">{r.supplier?.name || "—"}</td>
+                    <td className="px-5 font-medium text-foreground">{r.supplierName || r.supplier?.name || "—"}</td>
                     <td className="px-5 text-muted-foreground">
                       {format(new Date(r.returnDate), "MMM dd, yyyy")}
                     </td>

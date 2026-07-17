@@ -141,7 +141,7 @@ export default function PurchaseReturnDetailPage() {
               <Badge variant="outline" className={`font-medium text-xs ${statusConfig[curStatus]?.className || ""}`}>{statusLabel}</Badge>
               <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 font-medium text-xs">Supplier Return</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">{pr.supplier?.name || "Supplier Return"}</p>
+            <p className="text-sm text-muted-foreground">{pr.supplierName || pr.supplier?.name || "Supplier Return"}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -191,11 +191,11 @@ export default function PurchaseReturnDetailPage() {
         </div>
         <div className="border rounded-[5px] bg-card shadow-sm p-5">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Warehouse</p>
-          <p className="text-lg font-semibold">{pr.warehouse?.name || "—"}</p>
+          <p className="text-lg font-semibold">{pr.warehouseName || pr.warehouse?.name || "—"}</p>
         </div>
         <div className="border rounded-[5px] bg-card shadow-sm p-5">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Items Count</p>
-          <p className="text-2xl font-bold">{pr.items.length}</p>
+          <p className="text-2xl font-bold">{pr.items?.length ?? pr.itemCount ?? 0}</p>
         </div>
       </div>
 
@@ -226,14 +226,14 @@ export default function PurchaseReturnDetailPage() {
                             <Package className="h-3.5 w-3.5 text-muted-foreground" />
                           </div>
                           <div>
-                            <span className="font-medium text-foreground">{it.product?.name || it.productName}</span>
-                            {it.product?.sku && <p className="text-xs text-muted-foreground">SKU: {it.product.sku}</p>}
+                            <span className="font-medium text-foreground">{it.productName || it.product?.name}</span>
+                            {(it.productSku || it.product?.sku) && <p className="text-xs text-muted-foreground">SKU: {it.productSku || it.product?.sku}</p>}
                           </div>
                         </div>
                       </td>
                       <td className="px-4 text-right tabular-nums">{it.quantity}</td>
-                      <td className="px-4 text-right tabular-nums">{formatCurrency.format(Number(it.unitPrice))}</td>
-                      <td className="px-4 text-right font-semibold tabular-nums">{formatCurrency.format(Number(it.unitPrice) * Number(it.quantity))}</td>
+                      <td className="px-4 text-right tabular-nums">{formatCurrency.format(Number(it.unitCost))}</td>
+                      <td className="px-4 text-right font-semibold tabular-nums">{formatCurrency.format(Number(it.total ?? it.unitCost * it.quantity))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -284,7 +284,7 @@ export default function PurchaseReturnDetailPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Supplier</span>
-                <span className="font-semibold">{pr.supplier?.name || "—"}</span>
+                <span className="font-semibold">{pr.supplierName || pr.supplier?.name || "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Status</span>

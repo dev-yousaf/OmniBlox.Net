@@ -76,8 +76,8 @@ export default function PurchasesPage() {
     const headers = ["Reference", "Supplier", "Warehouse", "Date", "Amount", "Status", "Returns"];
     const rows = filtered.map((p) => [
       p.referenceNumber,
-      p.supplier?.name || "",
-      p.warehouse?.name || "",
+      p.supplierName || p.supplier?.name || "",
+      p.warehouseName || p.warehouse?.name || "",
       format(new Date(p.orderDate), "MMM dd, yyyy"),
       Number(p.totalAmount).toFixed(2),
       statusConfig[p.status]?.label || p.status,

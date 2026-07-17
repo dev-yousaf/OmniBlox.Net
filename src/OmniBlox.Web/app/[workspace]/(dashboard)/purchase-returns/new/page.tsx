@@ -168,7 +168,7 @@ export default function NewPurchaseReturnPage() {
     if (!formData.warehouseId) { setFormError("Please select a warehouse"); return; }
     if (!formData.supplierId) { setFormError("Please select a supplier"); return; }
     const items = formData.items.filter((it) => it.productId && it.quantity > 0).map((it) => ({
-      productId: it.productId, quantity: it.quantity, unitPrice: Number(it.unitPrice), purchaseOrderItemId: it.purchaseOrderItemId,
+      productId: it.productId, quantity: it.quantity, unitCost: Number(it.unitPrice), purchaseOrderItemId: it.purchaseOrderItemId,
     }));
     if (!items.length) { setFormError("Please add at least one item with quantity > 0"); return; }
     const invalidItems = formData.items.filter((it) => it.maxQuantity && it.quantity > it.maxQuantity);
