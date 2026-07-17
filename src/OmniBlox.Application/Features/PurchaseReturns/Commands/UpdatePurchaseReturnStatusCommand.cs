@@ -80,7 +80,7 @@ public class UpdatePurchaseReturnStatusCommandHandler : IRequestHandler<UpdatePu
                 po.HasReturns = hasReturns;
             }
         }
-        else if (oldStatus == "PENDING" && request.Status == "COMPLETED")
+        else if ((oldStatus == "PENDING" || oldStatus == "PROCESSING") && request.Status == "COMPLETED")
         {
             // Complete the return: remove stock
             foreach (var item in returnEntity.Items)
