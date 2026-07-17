@@ -83,8 +83,8 @@ export default function NewPurchaseReturnPage() {
       getPurchase(purchaseIdFromUrl)
         .then((purchase: any) => {
           setFormData({
-            warehouseId: purchase.warehouse?.id || (purchase as any).warehouseId || "",
-            supplierId: purchase.supplier.id,
+            warehouseId: (purchase as any).warehouseId || "",
+            supplierId: (purchase as any).supplierId,
             reason: `Return for purchase ${purchase.referenceNumber}`,
             purchaseOrderId: purchase.id,
             items: purchase.items?.map((item: any) => ({
@@ -113,8 +113,8 @@ export default function NewPurchaseReturnPage() {
     try {
       const purchase = await getPurchase(purchaseId);
       setFormData({
-        warehouseId: purchase.warehouse?.id || (purchase as any).warehouseId || "",
-        supplierId: purchase.supplier.id,
+        warehouseId: (purchase as any).warehouseId || "",
+        supplierId: (purchase as any).supplierId,
         reason: `Return for purchase ${purchase.referenceNumber}`,
         purchaseOrderId: purchase.id,
         items: purchase.items?.map((item: any) => ({
@@ -248,7 +248,7 @@ export default function NewPurchaseReturnPage() {
                   <SelectContent className="max-h-72">
                     <SelectItem value="__manual__">Manual Entry (No Reference)</SelectItem>
                     {purchases.map((purchase) => (
-                      <SelectItem key={purchase.id} value={purchase.id}>{purchase.referenceNumber} - {purchase.supplier?.name || "Unknown Supplier"}</SelectItem>
+                      <SelectItem key={purchase.id} value={purchase.id}>{purchase.referenceNumber} - {purchase.supplierName || "Unknown Supplier"}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -257,7 +257,7 @@ export default function NewPurchaseReturnPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label className="text-xs font-medium">Warehouse *</Label>
-                  <Select value={formData.warehouseId} onValueChange={(v) => setFormData((f) => ({ ...f, warehouseId: v }))} disabled={disabled}>
+                  <Select value={formData.warehouseId} onValueChange={(v) => setFormData((f) => ({ ...f, warehouseId: v }))} disabled={disabled || !!selectedPurchaseId}>
                     <SelectTrigger className="h-[34px] rounded-[5px] text-sm">
                       <SelectValue placeholder="Select warehouse" />
                     </SelectTrigger>
