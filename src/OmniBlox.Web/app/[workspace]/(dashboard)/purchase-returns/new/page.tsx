@@ -177,7 +177,8 @@ export default function NewPurchaseReturnPage() {
       setSubmitting(true);
       await createPurchaseReturn({
         warehouseId: formData.warehouseId, supplierId: formData.supplierId,
-        purchaseOrderId: formData.purchaseOrderId || undefined, reason: formData.reason || undefined, items,
+        purchaseOrderId: formData.purchaseOrderId || undefined, reason: formData.reason || undefined,
+        returnDate: new Date().toISOString(), items,
       });
       toast({ title: "Purchase return created successfully" });
       router.push(`/${ws}/purchase-returns`);

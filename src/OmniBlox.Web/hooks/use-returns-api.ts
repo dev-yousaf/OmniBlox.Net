@@ -91,6 +91,7 @@ export interface CreateSalesReturnDto {
   warehouseId: string;
   saleId?: string;
   reason?: string;
+  returnDate?: string;
   items: Array<{
     productId: string;
     quantity: number;
@@ -104,6 +105,7 @@ export interface CreatePurchaseReturnDto {
   supplierId: string;
   purchaseOrderId?: string;
   reason?: string;
+  returnDate?: string;
   items: Array<{
     productId: string;
     quantity: number;

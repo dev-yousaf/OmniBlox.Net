@@ -172,7 +172,7 @@ export default function NewSalesReturnPage() {
     if (invalidItems.length > 0) { setFormError("Some items exceed the maximum returnable quantity from the selected sale"); return; }
     try {
       setSubmitting(true);
-      await createSalesReturn({ warehouseId: formData.warehouseId, saleId: formData.saleId || undefined, reason: formData.reason || undefined, items });
+      await createSalesReturn({ warehouseId: formData.warehouseId, saleId: formData.saleId || undefined, reason: formData.reason || undefined, returnDate: new Date().toISOString(), items });
       toast({ title: "Sales return created successfully" });
       router.push(`/${ws}/sales-returns`);
     } catch (e: any) {
