@@ -83,7 +83,7 @@ export interface SaleItemPayload {
 
 export interface CreateSalePayload {
   invoiceNumber?: string;
-  customer: SaleCustomerPayload;
+  customerId: string;
   // Destination warehouse for fulfilling the sale
   warehouseId: string;
   saleDate: string;

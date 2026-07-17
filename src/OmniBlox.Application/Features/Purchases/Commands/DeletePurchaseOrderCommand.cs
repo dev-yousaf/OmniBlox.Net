@@ -3,8 +3,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
-using Inv = OmniBlox.Domain.Entities.Inventory;
 
 namespace OmniBlox.Application.Features.Purchases.Commands;
 
@@ -16,7 +16,18 @@ public record DeletePurchaseOrderCommand : IRequest
 public class DeletePurchaseOrderCommandHandler : IRequestHandler<DeletePurchaseOrderCommand>
 {
     private readonly IApplicationDbContext _context;
-    public DeletePurchaseOrderCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IStockService _stockService;
+
+    public DeletePurchaseOrderCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
+    {
+        _context = context;
+        _currentUser = currentUser;
+        _stockService = stockService;
+    }
 
     public async Task Handle(DeletePurchaseOrderCommand request, CancellationToken ct)
     {
@@ -29,31 +40,16 @@ public class DeletePurchaseOrderCommandHandler : IRequestHandler<DeletePurchaseO
         {
             foreach (var item in order.Items)
             {
-                var inventory = await _context.Inventories
-                    .FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == order.WarehouseId.Value, ct);
-
-                if (inventory is not null)
+                await _stockService.RecordMovementAsync(new RecordMovementArgs
                 {
-                    inventory.Quantity -= item.Quantity;
-                    inventory.UpdatedAt = DateTime.UtcNow;
-
-                    if (inventory.Quantity < 0) inventory.Quantity = 0;
-
-                    _context.StockLedgerEntries.Add(new StockLedgerEntry
-                    {
-                        ProductId = item.ProductId,
-                        WarehouseId = order.WarehouseId.Value,
-                        Quantity = -item.Quantity,
-                        Balance = inventory.Quantity,
-                        Type = "PURCHASE_DELETE",
-                        Reference = order.ReferenceNumber,
-                    });
-
-                    if (item.Product is not null)
-                    {
-                        item.Product.Stock -= item.Quantity;
-                    }
-                }
+                    ProductId = item.ProductId,
+                    WarehouseId = order.WarehouseId.Value,
+                    MovementType = MovementType.purchase_return,
+                    Quantity = item.Quantity,
+                    ReferenceType = "purchase",
+                    ReferenceId = order.Id,
+                    UserId = _currentUser.UserId,
+                }, ct);
             }
         }
 

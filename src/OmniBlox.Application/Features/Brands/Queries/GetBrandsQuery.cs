@@ -10,11 +10,16 @@ public record GetBrandsQuery : IRequest<List<BrandDto>>;
 public class GetBrandsQueryHandler : IRequestHandler<GetBrandsQuery, List<BrandDto>>
 {
     private readonly IApplicationDbContext _context;
-    public GetBrandsQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetBrandsQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<List<BrandDto>> Handle(GetBrandsQuery request, CancellationToken ct)
     {
-        var items = await _context.Brands.OrderBy(x => x.Name).ToListAsync(ct);
+        var items = await _context.Brands.Where(e => e.CompanyId == _currentUser.CompanyId).OrderBy(x => x.Name).ToListAsync(ct);
         return items.Select(BrandDto.FromEntity).ToList();
     }
 }

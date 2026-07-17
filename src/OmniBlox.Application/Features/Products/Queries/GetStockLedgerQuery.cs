@@ -13,25 +13,39 @@ public record GetStockLedgerQuery : IRequest<List<StockLedgerEntryDto>>
 public class GetStockLedgerQueryHandler : IRequestHandler<GetStockLedgerQuery, List<StockLedgerEntryDto>>
 {
     private readonly IApplicationDbContext _context;
-    public GetStockLedgerQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetStockLedgerQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<List<StockLedgerEntryDto>> Handle(GetStockLedgerQuery request, CancellationToken ct)
     {
-        var entries = await _context.StockLedgerEntries
-            .Where(e => e.ProductId == request.ProductId)
-            .OrderByDescending(e => e.CreatedAt)
+        var stockMovements = await _context.StockMovements
+            .Include(m => m.Warehouse)
+            .Where(m => m.ProductId == request.ProductId)
+            .OrderByDescending(m => m.CreatedAt)
             .ToListAsync(ct);
 
-        return entries.Select(e => new StockLedgerEntryDto
+        var movements = stockMovements.Select(m => new StockLedgerEntryDto
         {
-            Id = e.Id,
-            Quantity = e.Quantity,
-            Balance = e.Balance,
-            Type = e.Type,
-            Reference = e.Reference,
-            Note = e.Note,
-            CreatedAt = e.CreatedAt,
-            ProductId = e.ProductId,
+            Id = m.Id,
+            Quantity = m.MovementType switch
+            {
+                Domain.Enums.MovementType.sale or Domain.Enums.MovementType.purchase_return
+                    or Domain.Enums.MovementType.adjustment_out or Domain.Enums.MovementType.transfer_out
+                    => -m.Quantity,
+                _ => m.Quantity,
+            },
+            Balance = m.BalanceAfter,
+            Type = m.MovementType.ToString(),
+            Reference = m.ReferenceType,
+            Note = $"{m.Warehouse?.Name}",
+            CreatedAt = m.CreatedAt,
+            ProductId = m.ProductId,
         }).ToList();
+
+        return movements.OrderByDescending(m => m.CreatedAt).ToList();
     }
 }

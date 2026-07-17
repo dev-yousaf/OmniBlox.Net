@@ -3,8 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Inventory.DTOs;
-using Inv = OmniBlox.Domain.Entities.Inventory;
-using StockLedgerEntry = OmniBlox.Domain.Entities.StockLedgerEntry;
+using OmniBlox.Domain.Enums;
 
 namespace OmniBlox.Application.Features.Inventory.Commands;
 
@@ -19,7 +18,18 @@ public record UpdateInventoryCommand : IRequest<InventoryDto>
 public class UpdateInventoryCommandHandler : IRequestHandler<UpdateInventoryCommand, InventoryDto>
 {
     private readonly IApplicationDbContext _context;
-    public UpdateInventoryCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IStockService _stockService;
+
+    public UpdateInventoryCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
+    {
+        _context = context;
+        _currentUser = currentUser;
+        _stockService = stockService;
+    }
 
     public async Task<InventoryDto> Handle(UpdateInventoryCommand request, CancellationToken ct)
     {
@@ -37,41 +47,30 @@ public class UpdateInventoryCommandHandler : IRequestHandler<UpdateInventoryComm
         int previousQty = inventory?.Quantity ?? 0;
         int difference = request.Quantity - previousQty;
 
-        if (inventory is null)
+        if (difference != 0)
         {
-            inventory = new Inv
+            var movementType = difference > 0 ? MovementType.adjustment_in : MovementType.adjustment_out;
+
+            await _stockService.RecordMovementAsync(new RecordMovementArgs
             {
                 ProductId = request.ProductId,
                 WarehouseId = request.WarehouseId,
-                Quantity = request.Quantity,
-            };
-            _context.Inventories.Add(inventory);
+                MovementType = movementType,
+                Quantity = Math.Abs(difference),
+                ReferenceType = "inventory_update",
+                ReferenceId = null,
+                UserId = _currentUser.UserId,
+            }, ct);
         }
-        else
-        {
-            inventory.Quantity = request.Quantity;
-            inventory.UpdatedAt = DateTime.UtcNow;
-        }
-
-        product.Stock += difference;
-
-        var noteText = string.IsNullOrWhiteSpace(request.Notes)
-            ? $"Inventory update at {warehouse.Name}"
-            : request.Notes;
-
-        _context.StockLedgerEntries.Add(new StockLedgerEntry
-        {
-            ProductId = request.ProductId,
-            WarehouseId = request.WarehouseId,
-            Quantity = difference,
-            Balance = request.Quantity,
-            Type = "INVENTORY_UPDATE",
-            Reference = $"Inventory update at {warehouse.Name}",
-            Note = noteText,
-        });
 
         await _context.SaveChangesAsync(ct);
-        return InventoryDto.FromEntity(inventory);
+
+        var updatedInventory = await _context.Inventories
+            .Include(i => i.Product)
+            .Include(i => i.Warehouse)
+            .FirstAsync(i => i.ProductId == request.ProductId && i.WarehouseId == request.WarehouseId, ct);
+
+        return InventoryDto.FromEntity(updatedInventory);
     }
 }
 

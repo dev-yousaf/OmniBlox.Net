@@ -36,6 +36,12 @@ public class GetProductQueryHandler : IRequestHandler<GetProductQuery, ProductDt
             .Select(i => (Guid?)i.WarehouseId)
             .FirstOrDefaultAsync(ct);
 
+        // Compute live total stock from warehouse_stock
+        var liveStock = await _context.Inventories
+            .Where(i => i.ProductId == product.Id)
+            .SumAsync(i => (int?)i.Quantity ?? 0, ct);
+        product.Stock = liveStock;
+
         return ProductDto.FromEntity(product, warehouseId);
     }
 }

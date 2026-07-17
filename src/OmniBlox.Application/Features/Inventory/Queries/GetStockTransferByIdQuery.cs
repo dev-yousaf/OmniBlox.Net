@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Inventory.DTOs;
+using OmniBlox.Domain.Enums;
 
 namespace OmniBlox.Application.Features.Inventory.Queries;
 
@@ -13,32 +14,38 @@ public record GetStockTransferByIdQuery : IRequest<StockTransferDto>
 public class GetStockTransferByIdQueryHandler : IRequestHandler<GetStockTransferByIdQuery, StockTransferDto>
 {
     private readonly IApplicationDbContext _context;
-    public GetStockTransferByIdQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetStockTransferByIdQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<StockTransferDto> Handle(GetStockTransferByIdQuery request, CancellationToken ct)
     {
-        var entry = await _context.StockLedgerEntries
-            .Include(l => l.Product)
-            .Include(l => l.Warehouse)
-            .FirstOrDefaultAsync(l => l.Id == request.Id, ct);
+        var movement = await _context.StockMovements
+            .Include(m => m.Product)
+            .Include(m => m.Warehouse)
+            .FirstOrDefaultAsync(m => m.Id == request.Id && m.Product!.CompanyId == _currentUser.CompanyId, ct);
 
-        if (entry is null)
+        if (movement is null)
             throw new KeyNotFoundException("Stock transfer not found.");
 
-        var reference = entry.Reference ?? "unknown";
-        var allEntries = await _context.StockLedgerEntries
-            .Include(l => l.Product)
-            .Include(l => l.Warehouse)
-            .Where(l => l.Reference == reference && (l.Type == "TRANSFER_OUT" || l.Type == "TRANSFER_IN"))
+        var referenceId = movement.ReferenceId ?? Guid.Empty;
+        var allMovements = await _context.StockMovements
+            .Include(m => m.Product)
+            .Include(m => m.Warehouse)
+            .Where(m => m.ReferenceId == referenceId && m.Product!.CompanyId == _currentUser.CompanyId
+                && (m.MovementType == MovementType.transfer_out || m.MovementType == MovementType.transfer_in))
             .ToListAsync(ct);
 
-        var outEntry = allEntries.FirstOrDefault(e => e.Type == "TRANSFER_OUT");
+        var outMovement = allMovements.FirstOrDefault(e => e.MovementType == MovementType.transfer_out);
 
-        var items = allEntries.Select(e => new StockAdjustmentItemDto
+        var items = allMovements.Select(e => new StockAdjustmentItemDto
         {
             Id = e.Id,
-            NewQuantity = Math.Abs(e.Quantity),
-            Difference = e.Quantity,
+            NewQuantity = e.Quantity,
+            Difference = e.MovementType == MovementType.transfer_out ? -e.Quantity : e.Quantity,
             Product = new ItemProductInfo
             {
                 Name = e.Product?.Name ?? "",
@@ -53,12 +60,12 @@ public class GetStockTransferByIdQueryHandler : IRequestHandler<GetStockTransfer
 
         return new StockTransferDto
         {
-            Id = entry.Id,
-            ReferenceNumber = reference,
-            TotalItems = allEntries.Select(i => i.ProductId).Distinct().Count(),
-            AdjustmentDate = allEntries.Min(e => e.CreatedAt),
-            Notes = outEntry?.Note,
-            CreatedAt = allEntries.Min(e => e.CreatedAt),
+            Id = movement.Id,
+            ReferenceNumber = $"TRF-{referenceId.ToString("N")[..8].ToUpperInvariant()}",
+            TotalItems = allMovements.Select(i => i.ProductId).Distinct().Count(),
+            AdjustmentDate = allMovements.Min(e => e.CreatedAt),
+            Notes = null,
+            CreatedAt = allMovements.Min(e => e.CreatedAt),
             Items = items,
         };
     }

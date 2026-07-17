@@ -13,12 +13,17 @@ public record GetWarehouseInventoryQuery : IRequest<WarehouseInventoryDto>
 public class GetWarehouseInventoryQueryHandler : IRequestHandler<GetWarehouseInventoryQuery, WarehouseInventoryDto>
 {
     private readonly IApplicationDbContext _context;
-    public GetWarehouseInventoryQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetWarehouseInventoryQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<WarehouseInventoryDto> Handle(GetWarehouseInventoryQuery request, CancellationToken ct)
     {
         var warehouse = await _context.Warehouses
-            .FirstOrDefaultAsync(w => w.Id == request.WarehouseId, ct);
+            .FirstOrDefaultAsync(w => w.Id == request.WarehouseId && w.CompanyId == _currentUser.CompanyId, ct);
         if (warehouse is null)
             throw new KeyNotFoundException("Warehouse not found.");
 
@@ -29,38 +34,7 @@ public class GetWarehouseInventoryQueryHandler : IRequestHandler<GetWarehouseInv
             .OrderBy(i => i.Product.Name)
             .ToListAsync(ct);
 
-        List<InventoryDto> dtos;
-
-        if (inventories.Count > 0)
-        {
-            dtos = inventories.Select(InventoryDto.FromEntity).ToList();
-        }
-        else
-        {
-            var products = await _context.Products
-                .OrderBy(p => p.Name)
-                .Where(p => p.Stock > 0)
-                .ToListAsync(ct);
-
-            dtos = products.Select(p => new InventoryDto
-            {
-                ProductId = p.Id,
-                ProductName = p.Name,
-                ProductSku = p.SKU,
-                ImageUrl = p.ImageUrl,
-                WarehouseId = warehouse.Id,
-                WarehouseName = warehouse.Name,
-                Quantity = p.Stock,
-                SalePrice = p.SalePrice,
-                CostPrice = p.CostPrice,
-                ReorderLevel = p.ReorderLevel,
-                StockValue = p.Stock * p.CostPrice,
-                Status = p.Stock <= 0 ? "out_of_stock" : p.Stock <= p.ReorderLevel ? "low_stock" : "in_stock",
-                Category = p.Category,
-                Brand = p.Brand,
-                UpdatedAt = p.UpdatedAt,
-            }).ToList();
-        }
+        var dtos = inventories.Select(InventoryDto.FromEntity).ToList();
 
         return new WarehouseInventoryDto
         {

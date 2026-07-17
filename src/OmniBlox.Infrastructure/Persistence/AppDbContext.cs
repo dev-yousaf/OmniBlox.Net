@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using OmniBlox.Application.Common.Interfaces;
@@ -32,26 +31,27 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<Inventory> Inventories => Set<Inventory>();
     public DbSet<StockAdjustment> StockAdjustments => Set<StockAdjustment>();
     public DbSet<StockAdjustmentItem> StockAdjustmentItems => Set<StockAdjustmentItem>();
-    public DbSet<StockLedgerEntry> StockLedgerEntries => Set<StockLedgerEntry>();
+
+    public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<Biller> Billers => Set<Biller>();
+    public DbSet<Sale> Sales => Set<Sale>();
+    public DbSet<SaleItem> SaleItems => Set<SaleItem>();
+    public DbSet<SalesReturn> SalesReturns => Set<SalesReturn>();
+    public DbSet<SalesReturnItem> SalesReturnItems => Set<SalesReturnItem>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<PurchaseOrderItem> PurchaseOrderItems => Set<PurchaseOrderItem>();
+    public DbSet<PurchaseReturn> PurchaseReturns => Set<PurchaseReturn>();
+    public DbSet<PurchaseReturnItem> PurchaseReturnItems => Set<PurchaseReturnItem>();
+    public DbSet<Quotation> Quotations => Set<Quotation>();
+    public DbSet<QuotationItem> QuotationItems => Set<QuotationItem>();
+    public DbSet<Invitation> Invitations => Set<Invitation>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
         builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
-
-        foreach (var entityType in builder.Model.GetEntityTypes())
-        {
-            if (typeof(ITenantEntity).IsAssignableFrom(entityType.ClrType))
-            {
-                var parameter = Expression.Parameter(entityType.ClrType, "e");
-                var property = Expression.Property(parameter, nameof(ITenantEntity.CompanyId));
-                var companyId = Expression.Constant(_currentUser.CompanyId);
-                var body = Expression.Equal(property, companyId);
-                var lambda = Expression.Lambda(body, parameter);
-
-                entityType.SetQueryFilter(lambda);
-            }
-        }
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken ct = default)

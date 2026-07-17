@@ -22,6 +22,7 @@ public class CreatePurchaseReturnCommandHandler : IRequestHandler<CreatePurchase
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
+
     public CreatePurchaseReturnCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
     {
         _context = context;
@@ -56,13 +57,6 @@ public class CreatePurchaseReturnCommandHandler : IRequestHandler<CreatePurchase
                             $"Cannot return more than ordered quantity for product {item.ProductId}. Ordered: {poi.Quantity}, already returned: {poi.ReturnedQuantity}, attempting: {item.Quantity}");
                 }
             }
-
-            var stockCheck = request.Items.All(i =>
-            {
-                if (!i.PurchaseOrderItemId.HasValue) return true;
-                var poi = po.Items.FirstOrDefault(p => p.Id == i.PurchaseOrderItemId.Value);
-                return poi is null || poi.ReturnedQuantity + i.Quantity <= poi.Quantity;
-            });
         }
 
         foreach (var item in request.Items)

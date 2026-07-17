@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.PurchaseReturns.Commands;
@@ -15,7 +16,18 @@ public record DeletePurchaseReturnCommand : IRequest
 public class DeletePurchaseReturnCommandHandler : IRequestHandler<DeletePurchaseReturnCommand>
 {
     private readonly IApplicationDbContext _context;
-    public DeletePurchaseReturnCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IStockService _stockService;
+
+    public DeletePurchaseReturnCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
+    {
+        _context = context;
+        _currentUser = currentUser;
+        _stockService = stockService;
+    }
 
     public async Task Handle(DeletePurchaseReturnCommand request, CancellationToken ct)
     {
@@ -29,29 +41,16 @@ public class DeletePurchaseReturnCommandHandler : IRequestHandler<DeletePurchase
         {
             foreach (var item in returnEntity.Items)
             {
-                var inventory = await _context.Inventories
-                    .FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == returnEntity.WarehouseId, ct);
-
-                if (inventory is not null)
+                await _stockService.RecordMovementAsync(new RecordMovementArgs
                 {
-                    inventory.Quantity += item.Quantity;
-                    inventory.UpdatedAt = DateTime.UtcNow;
-
-                    _context.StockLedgerEntries.Add(new StockLedgerEntry
-                    {
-                        ProductId = item.ProductId,
-                        WarehouseId = returnEntity.WarehouseId,
-                        Quantity = item.Quantity,
-                        Balance = inventory.Quantity,
-                        Type = "PURCHASE_RETURN_DELETE",
-                        Reference = returnEntity.ReferenceNumber,
-                    });
-
-                    if (item.Product is not null)
-                    {
-                        item.Product.Stock += item.Quantity;
-                    }
-                }
+                    ProductId = item.ProductId,
+                    WarehouseId = returnEntity.WarehouseId,
+                    MovementType = MovementType.purchase,
+                    Quantity = item.Quantity,
+                    ReferenceType = "purchase_return",
+                    ReferenceId = returnEntity.Id,
+                    UserId = _currentUser.UserId,
+                }, ct);
 
                 if (item.PurchaseOrderItemId.HasValue)
                 {

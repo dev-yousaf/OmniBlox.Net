@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.Products.Commands;
@@ -31,7 +32,18 @@ public record AdjustStockResponse
 public class AdjustStockCommandHandler : IRequestHandler<AdjustStockCommand, AdjustStockResponse>
 {
     private readonly IApplicationDbContext _context;
-    public AdjustStockCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IStockService _stockService;
+
+    public AdjustStockCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
+    {
+        _context = context;
+        _currentUser = currentUser;
+        _stockService = stockService;
+    }
 
     public async Task<AdjustStockResponse> Handle(AdjustStockCommand request, CancellationToken ct)
     {
@@ -42,47 +54,29 @@ public class AdjustStockCommandHandler : IRequestHandler<AdjustStockCommand, Adj
             var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
             if (product is null) continue;
 
-            if (item.WarehouseId.HasValue)
+            if (!item.WarehouseId.HasValue) continue;
+
+            var inventory = await _context.Inventories
+                .FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == item.WarehouseId.Value, ct);
+
+            var currentQty = inventory?.Quantity ?? 0;
+            var difference = item.NewQuantity - currentQty;
+
+            if (difference == 0) continue;
+
+            var movementType = difference > 0 ? MovementType.adjustment_in : MovementType.adjustment_out;
+
+            await _stockService.RecordMovementAsync(new RecordMovementArgs
             {
-                var inventory = await _context.Inventories
-                    .FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == item.WarehouseId.Value, ct);
+                ProductId = item.ProductId,
+                WarehouseId = item.WarehouseId.Value,
+                MovementType = movementType,
+                Quantity = Math.Abs(difference),
+                ReferenceType = "adjustment",
+                ReferenceId = product.Id,
+                UserId = _currentUser.UserId,
+            }, ct);
 
-                if (inventory is null)
-                {
-                    inventory = new Domain.Entities.Inventory
-                    {
-                        ProductId = item.ProductId,
-                        WarehouseId = item.WarehouseId.Value,
-                        Quantity = 0,
-                    };
-                    _context.Inventories.Add(inventory);
-                }
-
-                var oldQty = inventory.Quantity;
-                inventory.Quantity = item.NewQuantity;
-                inventory.UpdatedAt = DateTime.UtcNow;
-
-                product.Stock += (item.NewQuantity - oldQty);
-            }
-            else
-            {
-                product.Stock = item.NewQuantity;
-            }
-
-            product.UpdatedAt = DateTime.UtcNow;
-
-            var difference = item.NewQuantity - item.PreviousQuantity;
-
-            _context.StockLedgerEntries.Add(new StockLedgerEntry
-            {
-                ProductId = product.Id,
-                WarehouseId = item.WarehouseId,
-                Quantity = difference,
-                Balance = product.Stock,
-                Type = request.Type,
-                Reference = "Stock adjustment",
-                Note = request.Notes,
-            });
             adjusted++;
         }
 

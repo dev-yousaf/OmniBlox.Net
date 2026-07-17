@@ -39,10 +39,17 @@ public record CreateProductCommand : IRequest<ProductDto>
 public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, ProductDto>
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IStockService _stockService;
 
-    public CreateProductCommandHandler(IApplicationDbContext context)
+    public CreateProductCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
     {
         _context = context;
+        _currentUser = currentUser;
+        _stockService = stockService;
     }
 
     public async Task<ProductDto> Handle(CreateProductCommand request, CancellationToken ct)
@@ -52,6 +59,29 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
         if (skuExists)
             throw new ConflictException($"Product with SKU '{request.SKU}' already exists.");
+
+        var warehouseId = request.WarehouseId;
+
+        // Auto-create a default warehouse if stock > 0 and no warehouse specified
+        if (request.Stock > 0 && !warehouseId.HasValue)
+        {
+            warehouseId = await _context.Warehouses
+                .Where(w => w.CompanyId == _currentUser.CompanyId)
+                .Select(w => (Guid?)w.Id)
+                .FirstOrDefaultAsync(ct);
+
+            if (!warehouseId.HasValue)
+            {
+                var defaultWarehouse = new Warehouse
+                {
+                    Name = "Default Warehouse",
+                    CompanyId = _currentUser.CompanyId,
+                };
+                _context.Warehouses.Add(defaultWarehouse);
+                await _context.SaveChangesAsync(ct);
+                warehouseId = defaultWarehouse.Id;
+            }
+        }
 
         var product = new Product
         {
@@ -66,7 +96,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             ImageUrl = request.ImageUrl,
             SalePrice = request.SalePrice,
             CostPrice = request.CostPrice,
-            Stock = request.Stock,
+            Stock = 0,
             ReorderLevel = request.ReorderLevel,
             Status = Enum.TryParse<ProductStatus>(request.Status, true, out var status) ? status : ProductStatus.ACTIVE,
             BarcodeSymbology = request.BarcodeSymbology,
@@ -82,24 +112,18 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         _context.Products.Add(product);
         await _context.SaveChangesAsync(ct);
 
-        if (request.Stock > 0 && request.WarehouseId.HasValue)
+        if (request.Stock > 0)
         {
-            _context.Inventories.Add(new Domain.Entities.Inventory
+            await _stockService.RecordMovementAsync(new RecordMovementArgs
             {
                 ProductId = product.Id,
-                WarehouseId = request.WarehouseId.Value,
+                WarehouseId = warehouseId!.Value,
+                MovementType = MovementType.opening_stock,
                 Quantity = request.Stock,
-            });
-
-            _context.StockLedgerEntries.Add(new StockLedgerEntry
-            {
-                ProductId = product.Id,
-                WarehouseId = request.WarehouseId.Value,
-                Quantity = request.Stock,
-                Balance = request.Stock,
-                Type = "INITIAL",
-                Reference = $"Initial stock for {product.Name}",
-            });
+                ReferenceType = "product",
+                ReferenceId = product.Id,
+                UserId = _currentUser.UserId,
+            }, ct);
 
             await _context.SaveChangesAsync(ct);
         }

@@ -15,14 +15,19 @@ public record GetWarehouseByIdQuery : IRequest<WarehouseDto>
 public class GetWarehouseByIdQueryHandler : IRequestHandler<GetWarehouseByIdQuery, WarehouseDto>
 {
     private readonly IApplicationDbContext _context;
-    public GetWarehouseByIdQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetWarehouseByIdQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<WarehouseDto> Handle(GetWarehouseByIdQuery request, CancellationToken ct)
     {
         var entity = await _context.Warehouses
             .Include(w => w.Inventories)
                 .ThenInclude(i => i.Product)
-            .FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+            .FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
         if (entity is null) throw new NotFoundException(nameof(Warehouse), request.Id);
         var dto = WarehouseDto.FromEntity(entity);
         var inventory = entity.Inventories.Select(i => new WarehouseInventoryItemDto

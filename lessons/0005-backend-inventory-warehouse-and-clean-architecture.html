@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 5: Inventory, Warehouses &amp; Clean Architecture Refactoring</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <style>
+    .diff-add { background: #d1fae5; }
+    .diff-rem { background: #fee2e2; }
+    @media (prefers-color-scheme: dark) {
+      .diff-add { background: #064e3b; }
+      .diff-rem { background: #7f1d1d; }
+    }
+    .file-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem; }
+    @media (max-width: 800px) { .file-grid { grid-template-columns: 1fr; } }
+    .file-card { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .file-card .hdr { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 600; padding: 0.4rem 0.6rem; background: var(--border); color: var(--text); border-bottom: 1px solid var(--border); }
+    .file-card pre { margin: 0; border: none; border-radius: 0; font-size: 0.8rem; background: var(--code-bg); }
+    .connector { grid-column: 1 / -1; text-align: center; font-size: 0.8rem; color: var(--accent); font-weight: 600; padding: 0.2rem; border-top: 1px dashed var(--border); border-bottom: 1px dashed var(--border); background: var(--accent-light); border-radius: 4px; }
+    .file-link { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--muted); padding: 0.25rem 0 0.5rem; }
+  </style>
+</head>
+<body>
+  <p class="lesson-meta">
+    <span class="lesson-number">Lesson 5 (Backend)</span> &middot;
+    Inventory, Warehouses &amp; Clean Architecture Refactoring &middot;
+    ~90 minutes
+  </p>
+
+  <h1>Stock/Warehouse Module &amp; Clean Architecture Standards</h1>
+
+  <p>
+    This lesson documents every backend code change made after Lesson 4 — bug fixes, DTO refactoring,
+    and clean architecture enforcement. The core Warehouse/Inventory/StockAdjustment entities and CQRS
+    were built <em>during</em> Lesson 4; this lesson covers the <strong>fixes and refinements</strong>
+    applied in two commits:
+  </p>
+  <ul>
+    <li><code>6120ed6</code> — Bug fixes (Product.Stock sync, nested DTOs, commands return data, warehouse inventory)</li>
+    <li><code>3bcb9a6</code> — Clean architecture: split overloaded DTO files, extract inline DTOs from queries/commands</li>
+  </ul>
+
+  <hr>
+
+  <h2>Part 1 — Bug Fixes (Commit 6120ed6)</h2>
+
+  <h3>1a. Product.Stock Synced on Transfer</h3>
+
+  <p>
+    <strong>Before:</strong> <code>TransferStockCommandHandler</code> and <code>BulkTransferStockCommandHandler</code>
+    updated per-warehouse <code>Inventory</code> rows but never recalculated <code>product.Stock</code>.
+    The product detail page showed a stale total.
+  </p>
+  <p><strong>Fix:</strong> After each transfer, sum all <code>Inventory</code> rows for the product:</p>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Inventory/Commands/TransferStockCommand.cs (lines 63–67)</div>
+<pre>
+var totalQty = await _context.Inventories
+    .Where(i =&gt; i.ProductId == request.ProductId)
+    .SumAsync(i =&gt; (int?)i.Quantity ?? 0, ct);
+product.Stock = totalQty;
+product.UpdatedAt = DateTime.UtcNow;
+</pre>
+  </div>
+
+  <p>Same fix in <code>BulkTransferStockCommandHandler</code> (lines 77–84):</p>
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Inventory/Commands/BulkTransferStockCommand.cs</div>
+<pre>
+if (productMap.TryGetValue(item.ProductId, out var prod))
+{
+    var totalQty = await _context.Inventories
+        .Where(i =&gt; i.ProductId == item.ProductId)
+        .SumAsync(i =&gt; (int?)i.Quantity ?? 0, ct);
+    prod.Stock = totalQty;
+    prod.UpdatedAt = DateTime.UtcNow;
+}
+</pre>
+  </div>
+
+  <h3>1b. Warehouse Detail Shows Inventory</h3>
+  <p>
+    <strong>Before:</strong> <code>GetWarehouseByIdQueryHandler</code> didn't eager-load <code>Inventories</code>.
+    The warehouse detail page showed an empty inventory.
+  </p>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Warehouses/Queries/GetWarehouseByIdQuery.cs (full)</div>
+<pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Warehouses.DTOs;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Shared.Exceptions;
+
+namespace OmniBlox.Application.Features.Warehouses.Queries;
+
+public record GetWarehouseByIdQuery : IRequest&lt;WarehouseDto&gt;
+{
+    public Guid Id { get; init; }
+}
+
+public class GetWarehouseByIdQueryHandler : IRequestHandler&lt;GetWarehouseByIdQuery, WarehouseDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetWarehouseByIdQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;WarehouseDto&gt; Handle(GetWarehouseByIdQuery request, CancellationToken ct)
+    {
+        var entity = await _context.Warehouses
+            .Include(w =&gt; w.Inventories)
+                .ThenInclude(i =&gt; i.Product)
+            .FirstOrDefaultAsync(x =&gt; x.Id == request.Id, ct);
+        if (entity is null) throw new NotFoundException(nameof(Warehouse), request.Id);
+        var dto = WarehouseDto.FromEntity(entity);
+        var inventory = entity.Inventories.Select(i =&gt; new WarehouseInventoryItemDto
+        {
+            Quantity = i.Quantity,
+            Product = new WarehouseProductInfo
+            {
+                Id = i.Product.Id,
+                Name = i.Product.Name,
+                Sku = i.Product.SKU,
+                SalePrice = i.Product.SalePrice,
+                Category = string.IsNullOrEmpty(i.Product.Category) ? null : new WarehouseCategoryInfo { Name = i.Product.Category },
+                Brand = string.IsNullOrEmpty(i.Product.Brand) ? null : new WarehouseBrandInfo { Name = i.Product.Brand },
+            },
+        }).ToList();
+        return dto with
+        {
+            Count = new WarehouseCount { ProductCount = inventory.Count },
+            Inventory = inventory.Count &gt; 0 ? inventory : null,
+        };
+    }
+}</pre>
+  </div>
+
+  <p>The <code>WarehouseDto</code> was updated to include the <code>Inventory</code> property:</p>
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Warehouses/DTOs/WarehouseDto.cs</div>
+<pre>using System.Text.Json.Serialization;
+using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.Warehouses.DTOs;
+
+public record WarehouseDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string? Location { get; init; }
+    public string Status { get; init; } = "ACTIVE";
+    [JsonPropertyName("_count")]
+    public WarehouseCount Count { get; init; } = new();
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+    public List&lt;WarehouseInventoryItemDto&gt;? Inventory { get; init; }  // &lt;-- added
+
+    public static WarehouseDto FromEntity(Warehouse entity) =&gt; new()
+    {
+        Id = entity.Id, Name = entity.Name, Location = entity.Location,
+        Status = entity.Status.ToString(), CreatedAt = entity.CreatedAt,
+        UpdatedAt = entity.UpdatedAt,
+    };
+}
+
+public record WarehouseCount
+{
+    [JsonPropertyName("inventory")]
+    public int ProductCount { get; init; }
+}
+
+public record WarehouseInventoryItemDto
+{
+    public int Quantity { get; init; }
+    public WarehouseProductInfo Product { get; init; } = new();
+}
+
+public record WarehouseProductInfo
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Sku { get; init; } = string.Empty;
+    public decimal SalePrice { get; init; }
+    public WarehouseCategoryInfo? Category { get; init; }
+    public WarehouseBrandInfo? Brand { get; init; }
+}
+
+public record WarehouseCategoryInfo
+{
+    public string Name { get; init; } = string.Empty;
+}
+
+public record WarehouseBrandInfo
+{
+    public string Name { get; init; } = string.Empty;
+}
+
+public record CreateWarehouseRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Location { get; init; }
+}
+
+public record UpdateWarehouseRequest
+{
+    public string? Name { get; init; }
+    public string? Location { get; init; }
+    public string? Status { get; init; }
+}</pre>
+  </div>
+
+  <h3>1c. Transfer / Adjustment Items Use Nested DTOs</h3>
+
+  <p>
+    <strong>Before:</strong> Flat DTOs used <code>productName</code> / <code>warehouseName</code> strings.
+    The frontend expects <code>item.product?.name</code> / <code>item.warehouse?.name</code>.
+  </p>
+
+  <p><strong>Fix:</strong> Replaced <code>TransferItemDto</code> / <code>AdjustmentItemDto</code> with a single
+    <code>StockAdjustmentItemDto</code> containing nested <code>ItemProductInfo</code> and <code>ItemWarehouseInfo</code>.
+  </p>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Inventory/DTOs/StockAdjustmentDtos.cs</div>
+<pre>namespace OmniBlox.Application.Features.Inventory.DTOs;
+
+public record CreateStockAdjustmentRequest
+{
+    public string Type { get; init; } = "ADDITION";
+    public List&lt;AdjustmentItem&gt; Items { get; init; } = [];
+    public string? Notes { get; init; }
+    public string? DocumentUrl { get; init; }
+}
+
+public record AdjustmentItem
+{
+    public Guid ProductId { get; init; }
+    public Guid WarehouseId { get; init; }
+    public int NewQuantity { get; init; }
+}
+
+public record StockAdjustmentDto
+{
+    public Guid Id { get; init; }
+    public string ReferenceNumber { get; init; } = string.Empty;
+    public string Type { get; init; } = string.Empty;
+    public string? Notes { get; init; }
+    public int TotalItems { get; init; }
+    public int NetChange { get; init; }
+    public DateTime AdjustmentDate { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public TransferUserInfo? User { get; init; }
+    public List&lt;StockAdjustmentItemDto&gt; Items { get; init; } = [];
+}
+
+public record StockAdjustmentItemDto
+{
+    public Guid Id { get; init; }
+    public int PreviousQuantity { get; init; }
+    public int NewQuantity { get; init; }
+    public int Difference { get; init; }
+    public ItemProductInfo? Product { get; init; }
+    public ItemWarehouseInfo? Warehouse { get; init; }
+}
+
+public record ItemProductInfo
+{
+    public string Name { get; init; } = string.Empty;
+    public string Sku { get; init; } = string.Empty;
+    public string? ImageUrl { get; init; }
+}
+
+public record ItemWarehouseInfo
+{
+    public string Name { get; init; } = string.Empty;
+}
+
+public record TransferUserInfo
+{
+    public string Name { get; init; } = string.Empty;
+    public string Email { get; init; } = string.Empty;
+}
+
+public record AdjustmentListResponse
+{
+    public List&lt;StockAdjustmentDto&gt; Adjustments { get; init; } = [];
+    public int Total { get; init; }
+    public int Pages { get; init; }
+}</pre>
+  </div>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Inventory/DTOs/TransferDtos.cs</div>
+<pre>namespace OmniBlox.Application.Features.Inventory.DTOs;
+
+public record TransferStockRequest
+{
+    public Guid ProductId { get; init; }
+    public Guid FromWarehouseId { get; init; }
+    public Guid ToWarehouseId { get; init; }
+    public int Quantity { get; init; }
+    public string? Note { get; init; }
+}
+
+public record BulkTransferItem
+{
+    public Guid ProductId { get; init; }
+    public int Quantity { get; init; }
+}
+
+public record BulkTransferRequest
+{
+    public Guid FromWarehouseId { get; init; }
+    public Guid ToWarehouseId { get; init; }
+    public List&lt;BulkTransferItem&gt; Items { get; init; } = [];
+    public string? Note { get; init; }
+}
+
+public record StockTransferDto
+{
+    public Guid Id { get; init; }
+    public string ReferenceNumber { get; init; } = string.Empty;
+    public int TotalItems { get; init; }
+    public DateTime AdjustmentDate { get; init; }
+    public string? Notes { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public TransferUserInfo? User { get; init; }
+    public List&lt;StockAdjustmentItemDto&gt; Items { get; init; } = [];
+}
+
+public record TransferListResponse
+{
+    public List&lt;StockTransferDto&gt; Transfers { get; init; } = [];
+    public int Total { get; init; }
+    public int Pages { get; init; }
+}</pre>
+  </div>
+
+  <p>All 4 query handlers that return transfers/adjustments now map nested objects:</p>
+
+  <div class="file-grid">
+    <div class="file-card">
+      <div class="hdr">GetStockTransfersQuery.cs — items mapping</div>
+      <pre>var items = g.Select(e =&gt; new StockAdjustmentItemDto
+{
+    ...
+    Product = new ItemProductInfo
+    {
+        Name = e.Product?.Name ?? "",
+        Sku = e.Product?.SKU ?? "",
+        ImageUrl = e.Product?.ImageUrl,
+    },
+    Warehouse = new ItemWarehouseInfo
+    {
+        Name = e.Warehouse?.Name ?? "",
+    },
+}).ToList();</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">GetStockTransferByIdQuery.cs — same pattern</div>
+      <pre>var items = allEntries.Select(e =&gt; new StockAdjustmentItemDto
+{
+    ...
+    Product = new ItemProductInfo { ... },
+    Warehouse = new ItemWarehouseInfo { ... },
+}).ToList();</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">GetStockAdjustmentsQuery.cs — same pattern</div>
+      <pre>Items = a.Items.Select(i =&gt; new StockAdjustmentItemDto
+{
+    ...
+    Product = new ItemProductInfo { ... },
+    Warehouse = new ItemWarehouseInfo { ... },
+}).ToList(),</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">GetStockAdjustmentByIdQuery.cs — same pattern</div>
+      <pre>Items = adjustment.Items.Select(i =&gt; new StockAdjustmentItemDto
+{
+    ...
+    Product = new ItemProductInfo { ... },
+    Warehouse = new ItemWarehouseInfo { ... },
+}).ToList(),</pre>
+    </div>
+  </div>
+
+  <h3>1d. Commands Return DTOs Instead of Void</h3>
+  <p>
+    <code>TransferStockCommand</code> and <code>BulkTransferStockCommand</code> were changed from
+    <code>IRequest</code> (void) to <code>IRequest&lt;StockTransferDto&gt;</code> so the frontend
+    can show the transfer result and navigate to the detail page.
+  </p>
+
+  <p><strong>TransferStockCommand</strong> — now declares <code>IRequest&lt;StockTransferDto&gt;</code> and the handler builds a response:</p>
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Inventory/Commands/TransferStockCommand.cs (full)</div>
+<pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Inventory.DTOs;
+using Inv = OmniBlox.Domain.Entities.Inventory;
+using StockLedgerEntry = OmniBlox.Domain.Entities.StockLedgerEntry;
+
+namespace OmniBlox.Application.Features.Inventory.Commands;
+
+public record TransferStockCommand : IRequest&lt;StockTransferDto&gt;
+{
+    public Guid ProductId { get; init; }
+    public Guid FromWarehouseId { get; init; }
+    public Guid ToWarehouseId { get; init; }
+    public int Quantity { get; init; }
+    public string? Note { get; init; }
+}
+
+public class TransferStockCommandHandler : IRequestHandler&lt;TransferStockCommand, StockTransferDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public TransferStockCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;StockTransferDto&gt; Handle(TransferStockCommand request, CancellationToken ct)
+    {
+        if (request.FromWarehouseId == request.ToWarehouseId)
+            throw new InvalidOperationException("Source and destination must be different.");
+
+        var fromInv = await _context.Inventories
+            .FirstOrDefaultAsync(i =&gt; i.ProductId == request.ProductId &amp;&amp; i.WarehouseId == request.FromWarehouseId, ct);
+        if (fromInv is null || fromInv.Quantity &lt; request.Quantity)
+            throw new InvalidOperationException("Insufficient stock.");
+
+        var toInv = await _context.Inventories
+            .FirstOrDefaultAsync(i =&gt; i.ProductId == request.ProductId &amp;&amp; i.WarehouseId == request.ToWarehouseId, ct);
+        var product = await _context.Products.FirstOrDefaultAsync(p =&gt; p.Id == request.ProductId, ct)
+            ?? throw new KeyNotFoundException("Product not found.");
+        var fromWh = await _context.Warehouses.FirstOrDefaultAsync(w =&gt; w.Id == request.FromWarehouseId, ct);
+        var toWh = await _context.Warehouses.FirstOrDefaultAsync(w =&gt; w.Id == request.ToWarehouseId, ct);
+
+        fromInv.Quantity -= request.Quantity;
+        fromInv.UpdatedAt = DateTime.UtcNow;
+
+        if (toInv is null)
+        {
+            toInv = new Inv { ProductId = request.ProductId, WarehouseId = request.ToWarehouseId, Quantity = request.Quantity };
+            _context.Inventories.Add(toInv);
+        }
+        else
+        {
+            toInv.Quantity += request.Quantity;
+            toInv.UpdatedAt = DateTime.UtcNow;
+        }
+
+        // Sync Product.Stock
+        var totalQty = await _context.Inventories
+            .Where(i =&gt; i.ProductId == request.ProductId)
+            .SumAsync(i =&gt; (int?)i.Quantity ?? 0, ct);
+        product.Stock = totalQty;
+        product.UpdatedAt = DateTime.UtcNow;
+
+        var note = request.Note ?? $"Transfer from {fromWh?.Name} to {toWh?.Name}";
+        _context.StockLedgerEntries.Add(new StockLedgerEntry
+        {
+            ProductId = request.ProductId, WarehouseId = request.FromWarehouseId,
+            Quantity = -request.Quantity, Balance = fromInv.Quantity,
+            Type = "TRANSFER_OUT", Reference = note,
+        });
+        _context.StockLedgerEntries.Add(new StockLedgerEntry
+        {
+            ProductId = request.ProductId, WarehouseId = request.ToWarehouseId,
+            Quantity = request.Quantity, Balance = toInv.Quantity,
+            Type = "TRANSFER_IN", Reference = note,
+        });
+
+        await _context.SaveChangesAsync(ct);
+
+        return new StockTransferDto
+        {
+            Id = outEntry.Id,
+            ReferenceNumber = note,
+            TotalItems = 1,
+            AdjustmentDate = DateTime.UtcNow,
+            Notes = request.Note,
+            CreatedAt = DateTime.UtcNow,
+            Items = new List&lt;StockAdjustmentItemDto&gt;
+            {
+                new()
+                {
+                    Id = outEntry.Id, NewQuantity = request.Quantity, Difference = -request.Quantity,
+                    Product = new ItemProductInfo { Name = product.Name, Sku = product.SKU, ImageUrl = product.ImageUrl },
+                    Warehouse = new ItemWarehouseInfo { Name = fromWh?.Name ?? "" },
+                },
+                new()
+                {
+                    Id = inEntry.Id, NewQuantity = request.Quantity, Difference = request.Quantity,
+                    Product = new ItemProductInfo { Name = product.Name, Sku = product.SKU, ImageUrl = product.ImageUrl },
+                    Warehouse = new ItemWarehouseInfo { Name = toWh?.Name ?? "" },
+                },
+            },
+        };
+    }
+}
+
+public class TransferStockCommandValidator : AbstractValidator&lt;TransferStockCommand&gt;
+{
+    public TransferStockCommandValidator()
+    {
+        RuleFor(v =&gt; v.ProductId).NotEmpty();
+        RuleFor(v =&gt; v.FromWarehouseId).NotEmpty();
+        RuleFor(v =&gt; v.ToWarehouseId).NotEmpty();
+        RuleFor(v =&gt; v.Quantity).GreaterThan(0);
+    }
+}</pre>
+  </div>
+
+  <p><strong>BulkTransferStockCommand</strong> — same pattern, returns <code>StockTransferDto</code> and syncs <code>product.Stock</code> per item:</p>
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Inventory/Commands/BulkTransferStockCommand.cs (full)</div>
+<pre>using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Inventory.DTOs;
+using Inv = OmniBlox.Domain.Entities.Inventory;
+using StockLedgerEntry = OmniBlox.Domain.Entities.StockLedgerEntry;
+
+namespace OmniBlox.Application.Features.Inventory.Commands;
+
+public record BulkTransferStockCommand : IRequest&lt;StockTransferDto&gt;
+{
+    public Guid FromWarehouseId { get; init; }
+    public Guid ToWarehouseId { get; init; }
+    public List&lt;BulkTransferItem&gt; Items { get; init; } = [];
+    public string? Note { get; init; }
+}
+
+public class BulkTransferStockCommandHandler : IRequestHandler&lt;BulkTransferStockCommand, StockTransferDto&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public BulkTransferStockCommandHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;StockTransferDto&gt; Handle(BulkTransferStockCommand request, CancellationToken ct)
+    {
+        if (request.FromWarehouseId == request.ToWarehouseId)
+            throw new InvalidOperationException("Source and destination must be different.");
+
+        var fromWh = await _context.Warehouses.FirstOrDefaultAsync(w =&gt; w.Id == request.FromWarehouseId, ct);
+        var toWh = await _context.Warehouses.FirstOrDefaultAsync(w =&gt; w.Id == request.ToWarehouseId, ct);
+        var note = request.Note ?? $"Bulk transfer from {fromWh?.Name} to {toWh?.Name}";
+        var productIds = request.Items.Select(i =&gt; i.ProductId).ToList();
+        var products = await _context.Products.Where(p =&gt; productIds.Contains(p.Id)).ToListAsync(ct);
+        var productMap = products.ToDictionary(p =&gt; p.Id);
+
+        foreach (var item in request.Items)
+        {
+            var fromInv = await _context.Inventories
+                .FirstOrDefaultAsync(i =&gt; i.ProductId == item.ProductId &amp;&amp; i.WarehouseId == request.FromWarehouseId, ct);
+            if (fromInv is null || fromInv.Quantity &lt; item.Quantity)
+            {
+                var p = productMap.GetValueOrDefault(item.ProductId);
+                throw new InvalidOperationException($"Insufficient stock for '{p?.Name ?? item.ProductId.ToString()}' in {fromWh?.Name}.");
+            }
+
+            var toInv = await _context.Inventories
+                .FirstOrDefaultAsync(i =&gt; i.ProductId == item.ProductId &amp;&amp; i.WarehouseId == request.ToWarehouseId, ct);
+
+            fromInv.Quantity -= item.Quantity;
+            fromInv.UpdatedAt = DateTime.UtcNow;
+
+            if (toInv is null)
+            {
+                toInv = new Inv { ProductId = item.ProductId, WarehouseId = request.ToWarehouseId, Quantity = item.Quantity };
+                _context.Inventories.Add(toInv);
+            }
+            else
+            {
+                toInv.Quantity += item.Quantity;
+                toInv.UpdatedAt = DateTime.UtcNow;
+            }
+
+            _context.StockLedgerEntries.Add(new StockLedgerEntry
+            {
+                ProductId = item.ProductId, WarehouseId = request.FromWarehouseId,
+                Quantity = -item.Quantity, Balance = fromInv.Quantity,
+                Type = "TRANSFER_OUT", Reference = note,
+            });
+            _context.StockLedgerEntries.Add(new StockLedgerEntry
+            {
+                ProductId = item.ProductId, WarehouseId = request.ToWarehouseId,
+                Quantity = item.Quantity, Balance = toInv.Quantity,
+                Type = "TRANSFER_IN", Reference = note,
+            });
+
+            // Sync Product.Stock per item
+            if (productMap.TryGetValue(item.ProductId, out var prod))
+            {
+                var totalQty = await _context.Inventories
+                    .Where(i =&gt; i.ProductId == item.ProductId)
+                    .SumAsync(i =&gt; (int?)i.Quantity ?? 0, ct);
+                prod.Stock = totalQty;
+                prod.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        await _context.SaveChangesAsync(ct);
+
+        var firstEntry = await _context.StockLedgerEntries
+            .Include(l =&gt; l.Product).Include(l =&gt; l.Warehouse)
+            .Where(l =&gt; l.Reference == note &amp;&amp; l.Type == "TRANSFER_OUT").ToListAsync(ct);
+
+        var items = firstEntry.Select(e =&gt; new StockAdjustmentItemDto
+        {
+            Id = e.Id, NewQuantity = Math.Abs(e.Quantity), Difference = e.Quantity,
+            Product = new ItemProductInfo { Name = e.Product?.Name ?? "", Sku = e.Product?.SKU ?? "", ImageUrl = e.Product?.ImageUrl },
+            Warehouse = new ItemWarehouseInfo { Name = fromWh?.Name ?? "" },
+        }).ToList();
+
+        var inEntries = await _context.StockLedgerEntries
+            .Include(l =&gt; l.Product).Include(l =&gt; l.Warehouse)
+            .Where(l =&gt; l.Reference == note &amp;&amp; l.Type == "TRANSFER_IN").ToListAsync(ct);
+
+        items.AddRange(inEntries.Select(e =&gt; new StockAdjustmentItemDto
+        {
+            Id = e.Id, NewQuantity = Math.Abs(e.Quantity), Difference = e.Quantity,
+            Product = new ItemProductInfo { Name = e.Product?.Name ?? "", Sku = e.Product?.SKU ?? "", ImageUrl = e.Product?.ImageUrl },
+            Warehouse = new ItemWarehouseInfo { Name = toWh?.Name ?? "" },
+        }));
+
+        return new StockTransferDto
+        {
+            Id = firstEntry.FirstOrDefault()?.Id ?? Guid.Empty,
+            ReferenceNumber = note, TotalItems = request.Items.Count,
+            AdjustmentDate = DateTime.UtcNow, Notes = request.Note,
+            CreatedAt = DateTime.UtcNow, Items = items,
+        };
+    }
+}
+
+public class BulkTransferStockCommandValidator : AbstractValidator&lt;BulkTransferStockCommand&gt;
+{
+    public BulkTransferStockCommandValidator()
+    {
+        RuleFor(v =&gt; v.FromWarehouseId).NotEmpty();
+        RuleFor(v =&gt; v.ToWarehouseId).NotEmpty();
+        RuleFor(v =&gt; v.Items).NotEmpty();
+    }
+}</pre>
+  </div>
+
+  <h3>1e. CreateStockAdjustment Returns Items</h3>
+
+  <p>
+    The <code>CreateStockAdjustmentCommandHandler</code> now builds and returns a populated
+    <code>Items</code> list with product/warehouse info, rather than returning an empty list.
+  </p>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Inventory/Commands/CreateStockAdjustmentCommand.cs (lines 47–118, key section)</div>
+<pre>int totalItems = 0;
+int netChange = 0;
+var items = new List&lt;StockAdjustmentItemDto&gt;();
+
+foreach (var item in request.Items)
+{
+    var inventory = await _context.Inventories
+        .FirstOrDefaultAsync(i =&gt; i.ProductId == item.ProductId &amp;&amp; i.WarehouseId == item.WarehouseId, ct);
+
+    int previousQty = inventory?.Quantity ?? 0;
+    int difference = item.NewQuantity - previousQty;
+
+    if (inventory is null)
+    {
+        inventory = new Inv { ProductId = item.ProductId, WarehouseId = item.WarehouseId, Quantity = item.NewQuantity };
+        _context.Inventories.Add(inventory);
+    }
+    else
+    {
+        inventory.Quantity = item.NewQuantity;
+        inventory.UpdatedAt = DateTime.UtcNow;
+    }
+
+    var product = await _context.Products.FirstOrDefaultAsync(p =&gt; p.Id == item.ProductId, ct);
+    if (product is not null) product.Stock += difference;
+
+    _context.StockAdjustmentItems.Add(new StockAdjustmentItem
+    {
+        StockAdjustmentId = adjustment.Id,
+        ProductId = item.ProductId, WarehouseId = item.WarehouseId,
+        PreviousQuantity = previousQty, NewQuantity = item.NewQuantity, Difference = difference,
+    });
+
+    _context.StockLedgerEntries.Add(new StockLedgerEntry
+    {
+        ProductId = item.ProductId, WarehouseId = item.WarehouseId,
+        Quantity = difference, Balance = item.NewQuantity,
+        Type = request.Type == "ADDITION" ? "ADJUSTMENT_ADD" : "ADJUSTMENT_REMOVE",
+        Reference = adjustment.ReferenceNumber, Note = request.Notes,
+    });
+
+    var warehouse = await _context.Warehouses.FirstOrDefaultAsync(w =&gt; w.Id == item.WarehouseId, ct);
+    items.Add(new StockAdjustmentItemDto
+    {
+        Id = Guid.Empty, PreviousQuantity = previousQty,
+        NewQuantity = item.NewQuantity, Difference = difference,
+        Product = new ItemProductInfo { Name = product?.Name ?? "", Sku = product?.SKU ?? "", ImageUrl = product?.ImageUrl },
+        Warehouse = new ItemWarehouseInfo { Name = warehouse?.Name ?? "" },
+    });
+
+    totalItems++;
+    netChange += difference;
+}
+
+adjustment.TotalItems = totalItems;
+adjustment.NetChange = netChange;
+await _context.SaveChangesAsync(ct);
+
+return new StockAdjustmentDto
+{
+    Id = adjustment.Id, ReferenceNumber = adjustment.ReferenceNumber, Type = adjustment.Type,
+    Notes = adjustment.Notes, TotalItems = adjustment.TotalItems, NetChange = adjustment.NetChange,
+    AdjustmentDate = adjustment.AdjustmentDate, CreatedAt = adjustment.CreatedAt,
+    Items = items,  // &lt;-- now populated
+};</pre>
+  </div>
+
+  <h3>1f. GetInventoryByProductQuery — Removed Misleading Fallback</h3>
+
+  <p>
+    <strong>Before:</strong> Returned a fallback row with quantity 0 for warehouses with no inventory record.
+    This made the product detail page show extra warehouses with zero stock.
+  </p>
+  <p><strong>After:</strong> Returns empty list when no <code>Inventory</code> records exist:</p>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Application/Features/Inventory/Queries/GetInventoryByProductQuery.cs (full)</div>
+<pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Inventory.DTOs;
+
+namespace OmniBlox.Application.Features.Inventory.Queries;
+
+public record GetInventoryByProductQuery : IRequest&lt;List&lt;InventoryDto&gt;&gt;
+{
+    public Guid ProductId { get; init; }
+}
+
+public class GetInventoryByProductQueryHandler : IRequestHandler&lt;GetInventoryByProductQuery, List&lt;InventoryDto&gt;&gt;
+{
+    private readonly IApplicationDbContext _context;
+    public GetInventoryByProductQueryHandler(IApplicationDbContext context) =&gt; _context = context;
+
+    public async Task&lt;List&lt;InventoryDto&gt;&gt; Handle(GetInventoryByProductQuery request, CancellationToken ct)
+    {
+        var items = await _context.Inventories
+            .Include(i =&gt; i.Product)
+            .Include(i =&gt; i.Warehouse)
+            .Where(i =&gt; i.ProductId == request.ProductId)
+            .OrderBy(i =&gt; i.Warehouse.Name)
+            .ToListAsync(ct);
+
+        if (items.Count &gt; 0)
+            return items.Select(InventoryDto.FromEntity).ToList();
+
+        return [];  // &lt;-- no more fallback row
+    }
+}</pre>
+  </div>
+
+  <h3>1g. InventoryController Returns Command Results</h3>
+
+  <p>
+    The <code>TransferStock</code> and <code>BulkTransferStock</code> endpoints now capture and return
+    the command result (previously they returned <code>Ok()</code> with no body):
+  </p>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Api/Controllers/InventoryController.cs (full)</div>
+<pre>using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.Inventory.Commands;
+using OmniBlox.Application.Features.Inventory.DTOs;
+using OmniBlox.Application.Features.Inventory.Queries;
+
+namespace OmniBlox.Api.Controllers;
+
+[Route("inventory")]
+[Authorize]
+[ApiController]
+public class InventoryController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    public InventoryController(IMediator mediator) =&gt; _mediator = mediator;
+
+    [HttpGet]
+    public async Task&lt;ActionResult&lt;InventoryListResponse&gt;&gt; GetAll(
+        CancellationToken ct,
+        [FromQuery] int page = 1, [FromQuery] int limit = 20,
+        [FromQuery] string? search = null,
+        [FromQuery] Guid? warehouseId = null,
+        [FromQuery] string? filter = null)
+    {
+        return Ok(await _mediator.Send(new GetInventoriesQuery
+        { Page = page, Limit = limit, Search = search, WarehouseId = warehouseId, Filter = filter }, ct));
+    }
+
+    [HttpGet("stats")]
+    public async Task&lt;ActionResult&lt;InventoryStatsDto&gt;&gt; GetStats(CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetInventoryStatsQuery(), ct));
+
+    [HttpGet("product/{productId:guid}")]
+    public async Task&lt;ActionResult&lt;List&lt;InventoryDto&gt;&gt;&gt; GetByProduct(Guid productId, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetInventoryByProductQuery { ProductId = productId }, ct));
+
+    [HttpPut("{productId:guid}/{warehouseId:guid}")]
+    public async Task&lt;ActionResult&lt;InventoryDto&gt;&gt; UpdateInventory(
+        Guid productId, Guid warehouseId, [FromBody] UpdateInventoryRequest request, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new UpdateInventoryCommand
+        { ProductId = productId, WarehouseId = warehouseId, Quantity = request.Quantity, Notes = request.Notes }, ct));
+
+    [HttpPost("transfers")]
+    public async Task&lt;ActionResult&lt;StockTransferDto&gt;&gt; TransferStock([FromBody] TransferStockRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new TransferStockCommand
+        { ProductId = request.ProductId, FromWarehouseId = request.FromWarehouseId,
+          ToWarehouseId = request.ToWarehouseId, Quantity = request.Quantity, Note = request.Note }, ct);
+        return Ok(result);  // &lt;-- returns the created transfer
+    }
+
+    [HttpPost("transfers/bulk")]
+    public async Task&lt;ActionResult&lt;StockTransferDto&gt;&gt; BulkTransferStock([FromBody] BulkTransferRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new BulkTransferStockCommand
+        { FromWarehouseId = request.FromWarehouseId, ToWarehouseId = request.ToWarehouseId,
+          Items = request.Items, Note = request.Note }, ct);
+        return Ok(result);  // &lt;-- returns the created transfer
+    }
+
+    [HttpGet("transfers")]
+    public async Task&lt;ActionResult&lt;TransferListResponse&gt;&gt; GetTransfers(CancellationToken ct, [FromQuery] int page = 1, [FromQuery] int limit = 20)
+        =&gt; Ok(await _mediator.Send(new GetStockTransfersQuery { Page = page, Limit = limit }, ct));
+
+    [HttpGet("transfers/{id:guid}")]
+    public async Task&lt;ActionResult&lt;StockTransferDto&gt;&gt; GetTransferById(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetStockTransferByIdQuery { Id = id }, ct));
+
+    [HttpPost("adjustments")]
+    public async Task&lt;ActionResult&lt;StockAdjustmentDto&gt;&gt; CreateAdjustment([FromBody] CreateStockAdjustmentRequest request, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new CreateStockAdjustmentCommand
+        { Type = request.Type, Items = request.Items, Notes = request.Notes, DocumentUrl = request.DocumentUrl }, ct));
+
+    [HttpGet("adjustments")]
+    public async Task&lt;ActionResult&lt;AdjustmentListResponse&gt;&gt; GetAdjustments(CancellationToken ct, [FromQuery] int page = 1, [FromQuery] int limit = 10)
+        =&gt; Ok(await _mediator.Send(new GetStockAdjustmentsQuery { Page = page, Limit = limit }, ct));
+
+    [HttpGet("adjustments/{id:guid}")]
+    public async Task&lt;ActionResult&lt;StockAdjustmentDto&gt;&gt; GetAdjustmentById(Guid id, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetStockAdjustmentByIdQuery { Id = id }, ct));
+
+    [HttpPost("backfill")]
+    public async Task&lt;ActionResult&lt;BackfillResult&gt;&gt; Backfill(CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new BackfillInventoryRecordsCommand(), ct));
+
+    [HttpGet("warehouses/{warehouseId:guid}/inventory")]
+    public async Task&lt;ActionResult&lt;WarehouseInventoryDto&gt;&gt; GetWarehouseInventory(Guid warehouseId, CancellationToken ct)
+        =&gt; Ok(await _mediator.Send(new GetWarehouseInventoryQuery { WarehouseId = warehouseId }, ct));
+}
+
+public record UpdateInventoryRequest
+{
+    public int Quantity { get; init; }
+    public string? Notes { get; init; }
+}</pre>
+  </div>
+
+  <hr>
+
+  <h2>Part 2 — Frontend Change: Per-Warehouse Stock on Product Detail</h2>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Web/components/products/detail/details-tab.tsx — Store/Warehouse field</div>
+<pre>{inventory.length &gt; 0 &amp;&amp; (
+  &lt;div&gt;
+    &lt;p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5"&gt;Store / Warehouse&lt;/p&gt;
+    &lt;div className="flex flex-wrap gap-1"&gt;
+      {inventory.map((inv, idx) =&gt; (
+        &lt;span key={inv.warehouseId} className="text-[13px] font-semibold text-card-foreground"&gt;
+          {idx &gt; 0 &amp;&amp; &lt;span className="text-muted-foreground/50 mx-0.5"&gt;, &lt;/span&gt;}
+          {inv.warehouseName}
+        &lt;/span&gt;
+      ))}
+    &lt;/div&gt;
+  &lt;/div&gt;
+)}</pre>
+  </div>
+
+  <p>And per-warehouse stock list with status badges:</p>
+  <div class="file-card">
+    <div class="hdr">details-tab.tsx — warehouse stock rows</div>
+<pre>{inventory.length &gt; 0 &amp;&amp; (
+  &lt;div className="border-t border-border px-[20px] py-[14px] space-y-2"&gt;
+    {inventoryLoading ? (
+      &lt;p className="text-[12px] text-muted-foreground"&gt;Loading warehouse stock...&lt;/p&gt;
+    ) : (
+      inventory.map((item) =&gt; (
+        &lt;div key={`${item.productId}-${item.warehouseId}`} className="flex items-center justify-between"&gt;
+          &lt;div className="flex items-center gap-2"&gt;
+            &lt;Warehouse className="w-3.5 h-3.5 text-muted-foreground" /&gt;
+            &lt;span className="text-[13px] text-card-foreground"&gt;{item.warehouseName}&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;div className="flex items-center gap-2"&gt;
+            &lt;span className="text-[13px] font-semibold text-card-foreground"&gt;{item.quantity} pc&lt;/span&gt;
+            {item.quantity === 0 &amp;&amp; &lt;Badge variant="destructive" className="text-[10px] h-4"&gt;Out&lt;/Badge&gt;}
+            {item.quantity &gt; 0 &amp;&amp; item.quantity &lt;= item.reorderLevel &amp;&amp; &lt;Badge variant="destructive" className="text-[10px] h-4"&gt;Low&lt;/Badge&gt;}
+            {item.quantity &gt; item.reorderLevel &amp;&amp; &lt;Badge variant="secondary" className="text-[10px] h-4 bg-green-100 text-green-700"&gt;OK&lt;/Badge&gt;}
+          &lt;/div&gt;
+        &lt;/div&gt;
+      ))
+    )}
+  &lt;/div&gt;
+)}</pre>
+  </div>
+
+  <hr>
+
+  <h2>Part 3 — Clean Architecture Refactoring (Commit 3bcb9a6)</h2>
+
+  <h3>3a. Inventory DTOs Split</h3>
+
+  <p>
+    <strong>Before:</strong> Single <code>InventoryDto.cs</code> with 17 records (mix of responses, requests, nested types).
+  </p>
+  <p><strong>After:</strong> 5 separate files:</p>
+
+  <div class="file-grid">
+    <div class="file-card">
+      <div class="hdr">InventoryDto.cs — InventoryDto + InventoryListResponse</div>
+<pre>using OmniBlox.Domain.Entities;
+using Inv = OmniBlox.Domain.Entities.Inventory;
+
+namespace OmniBlox.Application.Features.Inventory.DTOs;
+
+public record InventoryDto
+{
+    public Guid ProductId { get; init; }
+    public string ProductName { get; init; } = string.Empty;
+    public string ProductSku { get; init; } = string.Empty;
+    public string? ImageUrl { get; init; }
+    public Guid WarehouseId { get; init; }
+    public string WarehouseName { get; init; } = string.Empty;
+    public int Quantity { get; init; }
+    public decimal SalePrice { get; init; }
+    public decimal CostPrice { get; init; }
+    public int ReorderLevel { get; init; }
+    public decimal StockValue { get; init; }
+    public string Status { get; init; } = "in_stock";
+    public string Category { get; init; } = string.Empty;
+    public string? Brand { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+
+    public static InventoryDto FromEntity(Inv entity)
+    {
+        var qty = entity.Quantity;
+        var reorder = entity.Product?.ReorderLevel ?? 0;
+        var costPrice = entity.Product?.CostPrice ?? 0;
+        var status = qty &lt;= 0 ? "out_of_stock" : qty &lt;= reorder ? "low_stock" : "in_stock";
+        return new()
+        {
+            ProductId = entity.ProductId, ProductName = entity.Product?.Name ?? "",
+            ProductSku = entity.Product?.SKU ?? "", ImageUrl = entity.Product?.ImageUrl,
+            WarehouseId = entity.WarehouseId, WarehouseName = entity.Warehouse?.Name ?? "",
+            Quantity = qty, SalePrice = entity.Product?.SalePrice ?? 0,
+            CostPrice = costPrice, ReorderLevel = reorder,
+            StockValue = qty * costPrice, Status = status,
+            Category = entity.Product?.Category ?? "", Brand = entity.Product?.Brand,
+            CreatedAt = entity.CreatedAt, UpdatedAt = entity.UpdatedAt,
+        };
+    }
+}
+
+public record InventoryListResponse
+{
+    public List&lt;InventoryDto&gt; Inventory { get; init; } = [];
+    public int Total { get; init; }
+    public int Pages { get; init; }
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">InventoryStatsDto.cs</div>
+<pre>namespace OmniBlox.Application.Features.Inventory.DTOs;
+
+public record InventoryStatsDto
+{
+    public int TotalProducts { get; init; }
+    public int TotalWarehouses { get; init; }
+    public int LowStockProducts { get; init; }
+    public int OutOfStockProducts { get; init; }
+    public decimal TotalStockValue { get; init; }
+    public int RecentAdjustments { get; init; }
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">WarehouseInventoryDto.cs</div>
+<pre>namespace OmniBlox.Application.Features.Inventory.DTOs;
+
+public record WarehouseInventoryDto
+{
+    public Guid WarehouseId { get; init; }
+    public string WarehouseName { get; init; } = string.Empty;
+    public string? Location { get; init; }
+    public int TotalProducts { get; init; }
+    public decimal TotalStockValue { get; init; }
+    public int LowStockCount { get; init; }
+    public int OutOfStockCount { get; init; }
+    public List&lt;InventoryDto&gt; Inventory { get; init; } = [];
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">TransferDtos.cs (see Part 1c above)</div>
+    </div>
+    <div class="file-card">
+      <div class="hdr">StockAdjustmentDtos.cs (see Part 1c above)</div>
+    </div>
+  </div>
+
+  <h3>3b. Products DTOs Split</h3>
+
+  <p>
+    <strong>Before:</strong> Single <code>ProductDto.cs</code> with 4 records (ProductDto, ProductListResponse,
+    CreateProductRequest, UpdateProductRequest) and inline records in queries.
+  </p>
+  <p><strong>After:</strong> 6 separate files:</p>
+
+  <div class="file-grid">
+    <div class="file-card">
+      <div class="hdr">ProductDto.cs — ProductDto + ProductListResponse</div>
+<pre>using OmniBlox.Domain.Entities;
+
+namespace OmniBlox.Application.Features.Products.DTOs;
+
+public record ProductDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string SKU { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string Type { get; init; } = string.Empty;
+    public string Category { get; init; } = string.Empty;
+    public string? SubCategory { get; init; }
+    public string? Brand { get; init; }
+    public string Unit { get; init; } = string.Empty;
+    public string? ImageUrl { get; init; }
+    public decimal SalePrice { get; init; }
+    public decimal CostPrice { get; init; }
+    public int Stock { get; init; }
+    public int ReorderLevel { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public string? BarcodeSymbology { get; init; }
+    public decimal? TaxRate { get; init; }
+    public int? AlertQuantity { get; init; }
+    public string? ItemCode { get; init; }
+    public string? Manufacturer { get; init; }
+    public string? Warranty { get; init; }
+    public DateTime? ManufacturedDate { get; init; }
+    public DateTime? ExpiryDate { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
+
+    public static ProductDto FromEntity(Product product) =&gt; new()
+    {
+        Id = product.Id, Name = product.Name, SKU = product.SKU,
+        Description = product.Description, Type = product.Type.ToString(),
+        Category = product.Category, SubCategory = product.SubCategory,
+        Brand = product.Brand, Unit = product.Unit, ImageUrl = product.ImageUrl,
+        SalePrice = product.SalePrice, CostPrice = product.CostPrice,
+        Stock = product.Stock, ReorderLevel = product.ReorderLevel,
+        Status = product.Status.ToString(), BarcodeSymbology = product.BarcodeSymbology,
+        TaxRate = product.TaxRate, AlertQuantity = product.AlertQuantity,
+        ItemCode = product.ItemCode, Manufacturer = product.Manufacturer,
+        Warranty = product.Warranty, ManufacturedDate = product.ManufacturedDate,
+        ExpiryDate = product.ExpiryDate, CreatedAt = product.CreatedAt,
+        UpdatedAt = product.UpdatedAt,
+    };
+}
+
+public record ProductListResponse
+{
+    public List&lt;ProductDto&gt; Products { get; init; } = [];
+    public int Total { get; init; }
+    public int Pages { get; init; }
+    public int Page { get; init; }
+    public int Limit { get; init; }
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">CreateProductRequest.cs</div>
+<pre>namespace OmniBlox.Application.Features.Products.DTOs;
+
+public record CreateProductRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string SKU { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string? Type { get; init; }
+    public string Category { get; init; } = string.Empty;
+    public string? SubCategory { get; init; }
+    public string? Brand { get; init; }
+    public string Unit { get; init; } = string.Empty;
+    public string? ImageUrl { get; init; }
+    public decimal SalePrice { get; init; }
+    public decimal CostPrice { get; init; }
+    public int Stock { get; init; }
+    public int ReorderLevel { get; init; }
+    public string? Status { get; init; }
+    public string? BarcodeSymbology { get; init; }
+    public decimal? TaxRate { get; init; }
+    public int? AlertQuantity { get; init; }
+    public string? ItemCode { get; init; }
+    public string? Manufacturer { get; init; }
+    public string? Warranty { get; init; }
+    public DateTime? ManufacturedDate { get; init; }
+    public DateTime? ExpiryDate { get; init; }
+    public Guid? WarehouseId { get; init; }
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">UpdateProductRequest.cs</div>
+<pre>namespace OmniBlox.Application.Features.Products.DTOs;
+
+public record UpdateProductRequest
+{
+    public string? Name { get; init; }
+    public string? SKU { get; init; }
+    public string? Description { get; init; }
+    public string? Type { get; init; }
+    public string? Category { get; init; }
+    public string? SubCategory { get; init; }
+    public string? Brand { get; init; }
+    public string? Unit { get; init; }
+    public string? ImageUrl { get; init; }
+    public decimal? SalePrice { get; init; }
+    public decimal? CostPrice { get; init; }
+    public int? Stock { get; init; }
+    public int? ReorderLevel { get; init; }
+    public string? Status { get; init; }
+    public string? BarcodeSymbology { get; init; }
+    public decimal? TaxRate { get; init; }
+    public int? AlertQuantity { get; init; }
+    public string? ItemCode { get; init; }
+    public string? Manufacturer { get; init; }
+    public string? Warranty { get; init; }
+    public DateTime? ManufacturedDate { get; init; }
+    public DateTime? ExpiryDate { get; init; }
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">StockLedgerEntryDto.cs</div>
+<pre>namespace OmniBlox.Application.Features.Products.DTOs;
+
+public record StockLedgerEntryDto
+{
+    public Guid Id { get; init; }
+    public int Quantity { get; init; }
+    public int Balance { get; init; }
+    public string Type { get; init; } = string.Empty;
+    public string? Reference { get; init; }
+    public string? Note { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public Guid ProductId { get; init; }
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">ProductStatsResponse.cs</div>
+<pre>namespace OmniBlox.Application.Features.Products.DTOs;
+
+public record ProductStatsResponse
+{
+    public int TotalProducts { get; init; }
+    public int LowStockCount { get; init; }
+    public decimal TotalValue { get; init; }
+    public int CategoriesCount { get; init; }
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">LowStockDtos.cs</div>
+<pre>namespace OmniBlox.Application.Features.Products.DTOs;
+
+public record LowStockDetailItem
+{
+    public Guid ProductId { get; init; }
+    public string ProductName { get; init; } = string.Empty;
+    public string Sku { get; init; } = string.Empty;
+    public string? ImageUrl { get; init; }
+    public string Category { get; init; } = string.Empty;
+    public int Quantity { get; init; }
+    public int AlertQuantity { get; init; }
+}
+
+public record LowStockDetailsResponse
+{
+    public List&lt;LowStockDetailItem&gt; Items { get; init; } = [];
+    public int Total { get; init; }
+    public int Pages { get; init; }
+}</pre>
+    </div>
+  </div>
+
+  <h3>3c. Inline DTOs Extracted from Queries</h3>
+
+  <p>Before: Query files defined their response DTOs inline. After: import from DTOs namespace:</p>
+
+  <div class="file-grid">
+    <div class="file-card">
+      <div class="hdr">GetStockLedgerQuery.cs (before — had inline StockLedgerEntryDto)</div>
+      <div class="hdr" style="background: var(--success); color: white;">After — imports from DTOs</div>
+<pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Products.DTOs;
+
+namespace OmniBlox.Application.Features.Products.Queries;
+
+public record GetStockLedgerQuery : IRequest&lt;List&lt;StockLedgerEntryDto&gt;&gt;
+{
+    public Guid ProductId { get; init; }
+}
+
+public class GetStockLedgerQueryHandler : IRequestHandler&lt;GetStockLedgerQuery, List&lt;StockLedgerEntryDto&gt;&gt;
+{
+    // ... handler uses StockLedgerEntryDto from DTOs namespace
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">GetProductStatsQuery.cs (before — had inline ProductStatsResponse)</div>
+      <div class="hdr" style="background: var(--success); color: white;">After — imports from DTOs</div>
+<pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Products.DTOs;
+using OmniBlox.Domain.Enums;
+
+namespace OmniBlox.Application.Features.Products.Queries;
+
+public record GetProductStatsQuery : IRequest&lt;ProductStatsResponse&gt;;
+
+public class GetProductStatsQueryHandler : IRequestHandler&lt;GetProductStatsQuery, ProductStatsResponse&gt;
+{
+    // ... handler uses ProductStatsResponse from DTOs namespace
+}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">GetLowStockDetailsQuery.cs (before — had inline LowStockDetailItem, LowStockDetailsResponse)</div>
+      <div class="hdr" style="background: var(--success); color: white;">After — imports from DTOs</div>
+<pre>using MediatR;
+using Microsoft.EntityFrameworkCore;
+using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Products.DTOs;
+using OmniBlox.Domain.Enums;
+
+namespace OmniBlox.Application.Features.Products.Queries;
+
+public record GetLowStockDetailsQuery : IRequest&lt;LowStockDetailsResponse&gt;
+{
+    public int Page { get; init; } = 1;
+    public int Limit { get; init; } = 20;
+}
+
+public class GetLowStockDetailsQueryHandler : IRequestHandler&lt;GetLowStockDetailsQuery, LowStockDetailsResponse&gt;
+{
+    // ... handler uses LowStockDetailItem / LowStockDetailsResponse from DTOs
+}</pre>
+    </div>
+  </div>
+
+  <hr>
+
+  <h2>Part 4 — File Inventory</h2>
+
+  <p><strong>Commit 6120ed6</strong> — Bug fixes (backend files only):</p>
+  <pre>
+M src/OmniBlox.Api/Controllers/InventoryController.cs
+M src/OmniBlox.Application/Features/Inventory/Commands/BulkTransferStockCommand.cs
+M src/OmniBlox.Application/Features/Inventory/Commands/CreateStockAdjustmentCommand.cs
+M src/OmniBlox.Application/Features/Inventory/Commands/TransferStockCommand.cs
+M src/OmniBlox.Application/Features/Inventory/DTOs/InventoryDto.cs
+M src/OmniBlox.Application/Features/Inventory/Queries/GetInventoryByProductQuery.cs
+M src/OmniBlox.Application/Features/Inventory/Queries/GetStockAdjustmentByIdQuery.cs
+M src/OmniBlox.Application/Features/Inventory/Queries/GetStockAdjustmentsQuery.cs
+M src/OmniBlox.Application/Features/Inventory/Queries/GetStockTransferByIdQuery.cs
+M src/OmniBlox.Application/Features/Inventory/Queries/GetStockTransfersQuery.cs
+M src/OmniBlox.Application/Features/Products/DTOs/ProductDto.cs
+M src/OmniBlox.Application/Features/Warehouses/DTOs/WarehouseDto.cs
+M src/OmniBlox.Application/Features/Warehouses/Queries/GetWarehouseByIdQuery.cs
+M src/OmniBlox.Web/components/products/detail/details-tab.tsx</pre>
+
+  <p><strong>Commit 3bcb9a6</strong> — Clean architecture refactoring:</p>
+  <pre>
+A src/OmniBlox.Application/Features/Inventory/DTOs/InventoryStatsDto.cs
+A src/OmniBlox.Application/Features/Inventory/DTOs/StockAdjustmentDtos.cs
+A src/OmniBlox.Application/Features/Inventory/DTOs/TransferDtos.cs
+A src/OmniBlox.Application/Features/Inventory/DTOs/WarehouseInventoryDto.cs
+M src/OmniBlox.Application/Features/Inventory/DTOs/InventoryDto.cs (trimmed)
+A src/OmniBlox.Application/Features/Products/DTOs/CreateProductRequest.cs
+A src/OmniBlox.Application/Features/Products/DTOs/LowStockDtos.cs
+A src/OmniBlox.Application/Features/Products/DTOs/ProductStatsResponse.cs
+A src/OmniBlox.Application/Features/Products/DTOs/StockLedgerEntryDto.cs
+A src/OmniBlox.Application/Features/Products/DTOs/UpdateProductRequest.cs
+M src/OmniBlox.Application/Features/Products/DTOs/ProductDto.cs (trimmed)
+M src/OmniBlox.Application/Features/Products/Queries/GetLowStockDetailsQuery.cs (removed inline DTOs)
+M src/OmniBlox.Application/Features/Products/Queries/GetProductStatsQuery.cs (removed inline DTOs)
+M src/OmniBlox.Application/Features/Products/Queries/GetStockLedgerQuery.cs (removed inline DTOs)</pre>
+
+  <p>Together: <strong>28 backend files</strong> touched (14 modified, 9 added, 5 trimmed for clean architecture).</p>
+
+</body>
+</html>

@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 5: Frontend — Inventory, Warehouses &amp; Stock Operations</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <style>
+    .file-card { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 1rem; }
+    .file-card .hdr { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 600; padding: 0.4rem 0.6rem; background: var(--border); color: var(--text); border-bottom: 1px solid var(--border); }
+    .file-card pre { margin: 0; border: none; border-radius: 0; font-size: 0.78rem; line-height: 1.45; background: var(--code-bg); max-height: 400px; overflow-y: auto; }
+    .file-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem; }
+    @media (max-width: 800px) { .file-group { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <p class="lesson-meta">
+    <span class="lesson-number">Lesson 5 (Frontend)</span> &middot;
+    Inventory, Warehouses &amp; Stock Operations &middot;
+    ~20 files
+  </p>
+
+  <h1>Frontend: Inventory/Warehouse Module — Complete Source</h1>
+  <p>
+    Every frontend file for the inventory, warehouse, stock transfer, and stock adjustment features.
+    The Next.js 14 App Router frontend lives in <code>src/OmniBlox.Web/</code>.
+  </p>
+
+  <!-- ============================================================= -->
+  <h2>Section 1 — API Infrastructure (2 files)</h2>
+  <!-- ============================================================= -->
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Web/hooks/use-inventory-api.ts — All warehouse/inventory/transfer/adjustment API methods</div>
+<pre>import { useAuthenticatedApi } from "./use-authenticated-api";
+import { useCallback } from "react";
+
+export interface Warehouse {
+  id: string;  name: string;  location?: string;  createdAt: string;
+  updatedAt: string;  _count?: { inventory: number };
+}
+
+export interface CreateWarehouseData { name: string; location?: string; }
+export interface UpdateWarehouseData { name?: string; location?: string; }
+
+export interface InventoryItem {
+  productId: string;  productName: string;  productSku: string;
+  imageUrl: string | null;  warehouseId: string;  warehouseName: string;
+  quantity: number;  salePrice: number;  costPrice: number;
+  reorderLevel: number;  stockValue: number;
+  status: "in_stock" | "low_stock" | "out_of_stock";
+  category: string;  brand?: string;  updatedAt: string;
+}
+
+export interface InventoryListResponse {
+  inventory: InventoryItem[];  total: number;  pages: number;
+}
+
+export interface InventoryStats {
+  totalProducts: number;  totalWarehouses: number;
+  lowStockProducts: number;  outOfStockProducts: number;
+  totalStockValue: number;  recentAdjustments: number;
+}
+
+export interface StockTransferData {
+  productId: string;  fromWarehouseId: string;
+  toWarehouseId: string;  quantity: number;  notes?: string;
+}
+
+export interface BulkStockTransferItem { productId: string; quantity: number; }
+
+export interface BulkStockTransferData {
+  fromWarehouseId: string;  toWarehouseId: string;
+  notes?: string;  items: BulkStockTransferItem[];
+}
+
+export interface TransferListResponse {
+  transfers: StockAdjustment[];  total: number;  pages: number;
+}
+
+export interface StockAdjustmentData {
+  notes?: string;  adjustmentItems: StockAdjustmentItemData[];
+}
+
+export interface StockAdjustmentItemData {
+  productId: string;  warehouseId: string;  newQuantity: number;
+}
+
+export interface StockAdjustment {
+  id: string;  referenceNumber: string;  adjustmentDate: string;
+  notes?: string;  totalItems: number;  netChange: number;
+  createdAt: string;  user: { name: string; email: string; };
+  items: StockAdjustmentItem[];
+}
+
+export interface StockAdjustmentItem {
+  id: string;  previousQuantity: number;  newQuantity: number;
+  difference: number;
+  product: { name: string; sku: string; };
+  warehouse: { name: string; };
+}
+
+export interface WarehouseInventory {
+  warehouseId: string;  warehouseName: string;  location?: string;
+  totalProducts: number;  totalStockValue: number;
+  lowStockCount: number;  outOfStockCount: number;
+  inventory: InventoryItem[];
+}
+
+interface InventoryFilters {
+  page?: number;  limit?: number;  search?: string;
+  warehouseId?: string;  filter?: "low_stock" | "out_of_stock" | "all";
+}
+
+export function useInventoryApi() {
+  const { post, get, put, delete: del } = useAuthenticatedApi();
+
+  // === WAREHOUSE OPERATIONS ===
+  const createWarehouse = useCallback(
+    async (data: CreateWarehouseData): Promise&lt;Warehouse&gt; =&gt;
+      post("/inventory/warehouses", data) as Promise&lt;Warehouse&gt;, [post]);
+  const getWarehouses = useCallback(
+    async (): Promise&lt;Warehouse[]&gt; =&gt;
+      get("/inventory/warehouses") as Promise&lt;Warehouse[]&gt;, [get]);
+  const getWarehouse = useCallback(
+    async (id: string): Promise&lt;Warehouse&gt; =&gt;
+      get(`/inventory/warehouses/${id}`) as Promise&lt;Warehouse&gt;, [get]);
+  const updateWarehouse = useCallback(
+    async (id: string, data: UpdateWarehouseData): Promise&lt;Warehouse&gt; =&gt;
+      put(`/inventory/warehouses/${id}`, data) as Promise&lt;Warehouse&gt;, [put]);
+  const deleteWarehouse = useCallback(
+    async (id: string): Promise&lt;{ message: string }&gt; =&gt;
+      del(`/inventory/warehouses/${id}`) as Promise&lt;{ message: string }&gt;, [del]);
+  const getWarehouseInventory = useCallback(
+    async (warehouseId: string): Promise&lt;WarehouseInventory&gt; =&gt;
+      get(`/inventory/warehouses/${warehouseId}/inventory`) as Promise&lt;WarehouseInventory&gt;, [get]);
+
+  // === INVENTORY OPERATIONS ===
+  const getInventory = useCallback(
+    async (filters: InventoryFilters = {}): Promise&lt;InventoryListResponse&gt; =&gt; {
+      const params = new URLSearchParams();
+      if (filters.page) params.set("page", filters.page.toString());
+      if (filters.limit) params.set("limit", filters.limit.toString());
+      if (filters.search) params.set("search", filters.search);
+      if (filters.warehouseId) params.set("warehouseId", filters.warehouseId);
+      if (filters.filter) params.set("filter", filters.filter);
+      return get(`/inventory${params.toString() ? `?${params}` : ""}`) as Promise&lt;InventoryListResponse&gt;;
+    }, [get]);
+
+  const updateInventory = useCallback(
+    async (productId: string, warehouseId: string, quantity: number, notes?: string): Promise&lt;any&gt; =&gt;
+      put(`/inventory/${productId}/${warehouseId}`, { quantity, ...(notes ? { notes } : {}) }), [put]);
+
+  const getProductInventory = useCallback(
+    async (productId: string): Promise&lt;InventoryItem[]&gt; =&gt;
+      get(`/inventory/product/${productId}`) as Promise&lt;InventoryItem[]&gt;, [get]);
+
+  const getInventoryStats = useCallback(
+    async (): Promise&lt;InventoryStats&gt; =&gt;
+      get("/inventory/stats") as Promise&lt;InventoryStats&gt;, [get]);
+
+  // === STOCK TRANSFER OPERATIONS ===
+  const transferStock = useCallback(
+    async (data: StockTransferData): Promise&lt;StockAdjustment&gt; =&gt;
+      post("/inventory/transfers", data) as Promise&lt;StockAdjustment&gt;, [post]);
+  const bulkTransferStock = useCallback(
+    async (data: BulkStockTransferData): Promise&lt;StockAdjustment&gt; =&gt;
+      post("/inventory/transfers/bulk", data) as Promise&lt;StockAdjustment&gt;, [post]);
+  const getTransfers = useCallback(
+    async (page = 1, limit = 20): Promise&lt;TransferListResponse&gt; =&gt;
+      get(`/inventory/transfers?page=${page}&amp;limit=${limit}`) as Promise&lt;TransferListResponse&gt;, [get]);
+  const getTransfer = useCallback(
+    async (id: string): Promise&lt;StockAdjustment&gt; =&gt;
+      get(`/inventory/transfers/${id}`) as Promise&lt;StockAdjustment&gt;, [get]);
+
+  // === STOCK ADJUSTMENT OPERATIONS ===
+  const createStockAdjustment = useCallback(
+    async (data: StockAdjustmentData): Promise&lt;StockAdjustment&gt; =&gt;
+      post("/inventory/adjustments", data) as Promise&lt;StockAdjustment&gt;, [post]);
+  const getStockAdjustments = useCallback(
+    async (page = 1, limit = 10): Promise&lt;{ adjustments: StockAdjustment[]; total: number; pages: number }&gt; =&gt;
+      get(`/inventory/adjustments?page=${page}&amp;limit=${limit}`) as Promise&lt;any&gt;, [get]);
+
+  return {
+    createWarehouse, getWarehouses, getWarehouse, updateWarehouse, deleteWarehouse, getWarehouseInventory,
+    getInventory, getProductInventory, updateInventory, getInventoryStats,
+    transferStock, bulkTransferStock, getTransfers, getTransfer,
+    createStockAdjustment, getStockAdjustments,
+  };
+}</pre>
+  </div>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Web/hooks/use-warehouses.ts — Simple warehouse list loader</div>
+<pre>import { useState, useEffect } from "react";
+import { useAuthenticatedApi } from "@/hooks/use-authenticated-api";
+import { useAuth } from "@/contexts/auth-context";
+
+export interface Warehouse { id: string; name: string; location: string | null; }
+
+export function useWarehouses() {
+  const { get } = useAuthenticatedApi();
+  const { isAuthenticated } = useAuth();
+  const [warehouses, setWarehouses] = useState&lt;Warehouse[]&gt;([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState&lt;string | null&gt;(null);
+
+  const loadWarehouses = async () =&gt; {
+    try {
+      setLoading(true);  setError(null);
+      const response = await get("/inventory/warehouses");
+      setWarehouses(response as Warehouse[]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load warehouses");
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() =&gt; { if (isAuthenticated) loadWarehouses(); }, [isAuthenticated]);
+  return { warehouses, loading, error, reload: loadWarehouses };
+}</pre>
+  </div>
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Web/app/[...]/products/_services/stock-adjustment-service.ts</div>
+<pre>import { useCallback } from "react";
+import { useAuthenticatedApi } from "@/hooks/use-authenticated-api";
+
+export interface StockAdjustmentItemInput {
+  productId: string;  warehouseId: string;
+  previousQuantity: number;  newQuantity: number;
+}
+
+export interface CreateStockAdjustmentPayload {
+  notes?: string;  type?: "ADDITION" | "REMOVAL";  items: StockAdjustmentItemInput[];
+}
+
+export interface StockAdjustmentItemResponse {
+  id: string;  previousQuantity: number;  newQuantity: number;
+  difference: number;  productId: string;  productName: string;
+  productSku: string;  productImage: string | null;
+  warehouseId: string;  warehouseName: string;
+}
+
+export interface StockAdjustmentResponse {
+  id: string;  referenceNumber: string;  adjustmentDate: string;
+  notes?: string;  type: string;  totalItems: number;
+  netChange: number;  createdAt: string;  updatedAt: string;
+  userId: string;  userName: string;  items: StockAdjustmentItemResponse[];
+}
+
+export function useStockAdjustmentService() {
+  const { post, get } = useAuthenticatedApi();
+
+  const createStockAdjustment = useCallback(
+    async (payload: CreateStockAdjustmentPayload): Promise&lt;StockAdjustmentResponse&gt; =&gt; {
+      const response: any = await post("/inventory/adjustments", payload);
+      return {
+        id: response.id, referenceNumber: response.referenceNumber,
+        adjustmentDate: response.adjustmentDate, notes: response.notes,
+        type: response.type, totalItems: response.totalItems,
+        netChange: response.netChange, createdAt: response.createdAt,
+        updatedAt: response.createdAt,
+        userId: response.user?.id || "", userName: response.user?.name || "",
+        items: (response.items || []).map((i: any) =&gt; ({
+          id: i.id, previousQuantity: i.previousQuantity,
+          newQuantity: i.newQuantity, difference: i.difference,
+          productId: i.productId, productName: i.productName,
+          productSku: i.productSku, productImage: i.productImage,
+          warehouseId: i.warehouseId, warehouseName: i.warehouseName,
+        })),
+      } as StockAdjustmentResponse;
+    }, [post]);
+
+  const getStockAdjustments = useCallback(
+    async (): Promise&lt;StockAdjustmentResponse[]&gt; =&gt; {
+      const response: any = await get("/inventory/adjustments?limit=20");
+      const list = response.adjustments || response || [];
+      return (Array.isArray(list) ? list : []).map((adj: any) =&gt; ({
+        // ... same mapping as createStockAdjustment
+      }));
+    }, [get]);
+
+  const getStockAdjustment = useCallback(
+    async (id: string): Promise&lt;StockAdjustmentResponse&gt; =&gt; {
+      // ... same mapping
+    }, [get]);
+
+  return { createStockAdjustment, getStockAdjustments, getStockAdjustment };
+}</pre>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>Section 2 — Inventory Manage Stock Page (1 file)</h2>
+  <!-- ============================================================= -->
+
+  <div class="file-card">
+    <div class="hdr">src/OmniBlox.Web/app/[...]/inventory/page.tsx (560 lines — Manage Stock table)</div>
+<pre>"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth-context";
+import {
+  Plus, Pencil, Trash2, Loader2, ArrowUpDown,
+  Search, ChevronLeft, ChevronRight,
+  RefreshCw, ChevronUp, FileText, FileSpreadsheet,
+  Package, Warehouse, ArrowLeftRight,
+} from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  useInventoryApi, type InventoryItem,
+} from "@/hooks/use-inventory-api";
+import { WorkspaceLink as Link } from "@/components/workspace-link";
+
+const statusStyles: Record&lt;string, string&gt; = {
+  in_stock: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+  low_stock: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+  out_of_stock: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
+};
+const statusLabels: Record&lt;string, string&gt; = {
+  in_stock: "In Stock", low_stock: "Low Stock", out_of_stock: "Out of Stock",
+};
+const ROWS_PER_PAGE = 10;
+
+export default function ManageStockPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const api = useInventoryApi();
+
+  const [items, setItems] = useState&lt;InventoryItem[]&gt;([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [warehouseFilter, setWarehouseFilter] = useState("all");
+  const [sortDir, setSortDir] = useState&lt;"asc" | "desc"&gt;("desc");
+  const [selectedIds, setSelectedIds] = useState&lt;Set&lt;string&gt;&gt;(new Set());
+  const [warehouseNames, setWarehouseNames] = useState&lt;string[]&gt;([]);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editItem, setEditItem] = useState&lt;InventoryItem | null&gt;(null);
+  const [editQty, setEditQty] = useState("");
+  const [editNote, setEditNote] = useState("");
+  const [editingQty, setEditingQty] = useState(false);
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteItem, setDeleteItem] = useState&lt;InventoryItem | null&gt;(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const [tableCollapsed, setTableCollapsed] = useState(false);
+
+  const canManage = user?.role === "OWNER" || user?.role === "ADMIN" || user?.role === "MANAGER";
+
+  useEffect(() =&gt; { load(); }, []);
+
+  const load = async () =&gt; {
+    try {
+      setIsLoading(true);
+      const [data, wh] = await Promise.all([
+        api.getInventory({ limit: 100 }),
+        api.getWarehouses(),
+      ]);
+      setItems(data.inventory);
+      setWarehouseNames(wh.map((w) =&gt; w.name));
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to load", variant: "destructive" });
+    } finally { setIsLoading(false); }
+  };
+
+  // ── Filtering, sorting, pagination ──
+  const filtered = useMemo(() =&gt; {
+    let result = [...items];
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (i) =&gt; i.productName.toLowerCase().includes(q) ||
+               i.productSku.toLowerCase().includes(q) ||
+               i.warehouseName.toLowerCase().includes(q));
+    }
+    if (warehouseFilter !== "all") result = result.filter((i) =&gt; i.warehouseName === warehouseFilter);
+    if (statusFilter !== "all") result = result.filter((i) =&gt; i.status === statusFilter);
+    result.sort((a, b) =&gt; {
+      const d = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+      return sortDir === "asc" ? d : -d;
+    });
+    return result;
+  }, [items, search, warehouseFilter, statusFilter, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
+  const paged = filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+
+  // ── Edit dialog ──
+  const openEdit = (item: InventoryItem) =&gt; {
+    setEditItem(item); setEditQty(String(item.quantity)); setEditNote(""); setEditOpen(true);
+  };
+
+  const handleEditSave = async () =&gt; {
+    if (!editItem) return;
+    const qty = parseInt(editQty, 10);
+    if (isNaN(qty) || qty &lt; 0) {
+      toast({ title: "Invalid quantity", description: "Must be non-negative", variant: "destructive" });
+      return;
+    }
+    try {
+      setEditingQty(true);
+      await api.updateInventory(editItem.productId, editItem.warehouseId, qty, editNote.trim() || undefined);
+      toast({ title: "Updated", description: `Stock for ${editItem.productName} set to ${qty}` });
+      setEditOpen(false); load();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to update", variant: "destructive" });
+    } finally { setEditingQty(false); }
+  };
+
+  // ── Delete (clear stock) ──
+  const handleDelete = async () =&gt; {
+    if (!deleteItem) return;
+    try {
+      setDeleting(true);
+      await api.updateInventory(deleteItem.productId, deleteItem.warehouseId, 0);
+      toast({ title: "Deleted", description: `Stock for ${deleteItem.productName} cleared` });
+      setDeleteOpen(false); setDeleteItem(null); load();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to delete", variant: "destructive" });
+    } finally { setDeleting(false); }
+  };
+
+  // ── CSV export ──
+  const exportCSV = () =&gt; {
+    const headers = ["Warehouse","Product","SKU","Category","Quantity","Status","Last Updated"];
+    const rows = filtered.map((i) =&gt; [i.warehouseName,i.productName,i.productSku,i.category,
+      String(i.quantity),statusLabels[i.status]||i.status,new Date(i.updatedAt).toLocaleDateString()]);
+    const csv = [headers, ...rows].map((r) =&gt; r.map((c) =&gt; `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url;
+    a.download = `manage-stock-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+    toast({ title: "Exported", description: "Stock data exported as CSV" });
+  };
+
+  // ── Render ──
+  return (
+    &lt;div className="space-y-5"&gt;
+      {/* Header with breadcrumb, export buttons, stock adjustment link */}
+      &lt;div className="flex items-center justify-between"&gt;
+        &lt;div&gt;
+          &lt;div className="flex items-center gap-1 text-sm text-muted-foreground mb-0.5"&gt;
+            &lt;span&gt;Dashboard&lt;/span&gt; &lt;ChevronRight className="h-3.5 w-3.5" /&gt;
+            &lt;span className="text-foreground"&gt;Manage Stock&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;h1 className="text-[18px] font-bold text-foreground"&gt;Manage Stock&lt;/h1&gt;
+        &lt;/div&gt;
+        &lt;div className="flex items-center gap-2"&gt;
+          &lt;Button variant="outline" size="icon" className="h-[34px] w-[34px] rounded-[5px]" title="Export CSV" onClick={exportCSV}&gt;
+            &lt;FileText className="h-4 w-4" /&gt;
+          &lt;/Button&gt;
+          {/* ... refresh, collapse, stock adjustment link */}
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      {/* Quick actions: Transfer Stock, Manage Warehouses */}
+      &lt;div className="flex items-center gap-3"&gt;
+        &lt;Link href="/inventory/transfer"&gt;...&lt;/Link&gt;
+        &lt;Link href="/inventory/warehouses"&gt;...&lt;/Link&gt;
+      &lt;/div&gt;
+
+      {/* Table with search, warehouse filter, status filter, columns */}
+      &lt;div className="border rounded-[5px] bg-card shadow-sm overflow-hidden"&gt;
+        &lt;div className="flex items-center gap-4 px-5 py-[15px] border-b"&gt;
+          &lt;div className="flex items-center gap-2 border rounded-[5px] px-2.5 py-1.5 w-[200px]"&gt;
+            &lt;Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" /&gt;
+            &lt;input className="flex-1 bg-transparent text-sm outline-none" placeholder="Search products..."
+              value={search} onChange={(e) =&gt; { setSearch(e.target.value); setPage(1); }} /&gt;
+          &lt;/div&gt;
+          &lt;Select value={warehouseFilter} onValueChange={(v) =&gt; { setWarehouseFilter(v); setPage(1); }}&gt;
+            &lt;SelectTrigger className="h-[34px] w-[130px] text-sm rounded-[5px]"&gt;
+              &lt;SelectValue placeholder="Warehouse" /&gt;
+            &lt;/SelectTrigger&gt;
+            &lt;SelectContent&gt;
+              &lt;SelectItem value="all"&gt;All Warehouses&lt;/SelectItem&gt;
+              {warehouseNames.map((name) =&gt; (
+                &lt;SelectItem key={name} value={name}&gt;{name}&lt;/SelectItem&gt;
+              ))}
+            &lt;/SelectContent&gt;
+          &lt;/Select&gt;
+          &lt;Select value={statusFilter} onValueChange={(v) =&gt; { setStatusFilter(v); setPage(1); }}&gt;
+            &lt;SelectTrigger className="h-[34px] w-[130px] text-sm rounded-[5px]"&gt;
+              &lt;SelectValue placeholder="Status" /&gt;
+            &lt;/SelectTrigger&gt;
+            &lt;SelectContent&gt;
+              &lt;SelectItem value="all"&gt;All Status&lt;/SelectItem&gt;
+              &lt;SelectItem value="in_stock"&gt;In Stock&lt;/SelectItem&gt;
+              &lt;SelectItem value="low_stock"&gt;Low Stock&lt;/SelectItem&gt;
+              &lt;SelectItem value="out_of_stock"&gt;Out of Stock&lt;/SelectItem&gt;
+            &lt;/SelectContent&gt;
+          &lt;/Select&gt;
+        &lt;/div&gt;
+
+        {/* Table rows with product image, name, SKU, warehouse, qty, status badge, actions */}
+        {paged.map((item) =&gt; (
+          &lt;tr key={`${item.productId}-${item.warehouseId}`} className="h-[56px] border-b hover:bg-muted/30"&gt;
+            &lt;td className="w-[50px] px-5"&gt;
+              &lt;Checkbox checked={selectedIds.has(rowKey)} onCheckedChange={() =&gt; toggleSelect(rowKey)} /&gt;
+            &lt;/td&gt;
+            &lt;td className="px-5"&gt;
+              &lt;div className="flex items-center gap-2.5"&gt;
+                &lt;div className="bg-muted rounded-[5px] size-[34px] flex items-center justify-center overflow-hidden shrink-0"&gt;
+                  {item.imageUrl ? &lt;img src={item.imageUrl} alt="" className="size-full object-cover" /&gt;
+                    : &lt;Package className="h-4 w-4 text-muted-foreground" /&gt;}
+                &lt;/div&gt;
+                &lt;div className="min-w-0"&gt;
+                  &lt;p className="font-medium text-foreground truncate max-w-[200px]"&gt;{item.productName}&lt;/p&gt;
+                  {item.brand &amp;&amp; &lt;p className="text-xs text-muted-foreground truncate"&gt;{item.brand}&lt;/p&gt;}
+                &lt;/div&gt;
+              &lt;/div&gt;
+            &lt;/td&gt;
+            &lt;td className="w-[110px] px-5 font-mono text-xs text-muted-foreground"&gt;{item.productSku}&lt;/td&gt;
+            &lt;td className="w-[160px] px-5 text-foreground"&gt;{item.warehouseName}&lt;/td&gt;
+            &lt;td className="w-[80px] px-5 text-right"&gt;
+              &lt;span className={`font-semibold tabular-nums ${item.quantity === 0 ? "text-destructive"
+                : item.quantity &lt;= item.reorderLevel ? "text-amber-600" : "text-foreground"}`}&gt;
+                {item.quantity}
+              &lt;/span&gt;
+            &lt;/td&gt;
+            &lt;td className="w-[110px] px-5"&gt;
+              &lt;Badge variant="outline" className={`font-medium text-xs ${statusStyles[item.status] || ""}`}&gt;
+                {statusLabels[item.status] || item.status}
+              &lt;/Badge&gt;
+            &lt;/td&gt;
+            &lt;td className="w-[120px] px-5 text-muted-foreground text-xs"&gt;
+              {new Date(item.updatedAt).toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" })}
+            &lt;/td&gt;
+            &lt;td className="w-[100px] px-5"&gt;
+              {canManage &amp;&amp; (
+                &lt;div className="flex items-center gap-1"&gt;
+                  &lt;Button variant="outline" size="icon" className="h-[30px] w-[30px] rounded-[5px]"
+                    title="Edit quantity" onClick={() =&gt; openEdit(item)}&gt;
+                    &lt;Pencil className="h-3.5 w-3.5" /&gt;
+                  &lt;/Button&gt;
+                  &lt;Button variant="outline" size="icon" className="h-[30px] w-[30px] rounded-[5px] text-destructive"
+                    title="Clear stock" onClick={() =&gt; openDelete(item)}&gt;
+                    &lt;Trash2 className="h-3.5 w-3.5" /&gt;
+                  &lt;/Button&gt;
+                &lt;/div&gt;
+              )}
+            &lt;/td&gt;
+          &lt;/tr&gt;
+        ))}
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}</pre>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>Section 3 — Warehouse Pages (5 files)</h2>
+  <!-- ============================================================= -->
+
+  <div class="file-group">
+    <div class="file-card">
+      <div class="hdr">warehouses/page.tsx — List all warehouses</div>
+<pre>Key features:
+• Stats cards (total warehouses, products, inventory items)
+• Search by name/location
+• Paginated table (20 per page)
+• CSV export
+• Click row → detail page
+• Edit/delete buttons per row
+• Delete alert dialog with inventory warning</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">warehouses/new/page.tsx — Create warehouse form</div>
+<pre>Key features:
+• Name (required) + Location fields
+• Breadcrumb navigation
+• Cancel / Create buttons
+• Validates name before submit
+• Redirects to warehouse list on success</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">warehouses/[id]/page.tsx — Warehouse detail</div>
+<pre>Key features:
+• Header with name, status badge, location, created date
+• Edit/Delete action buttons
+• 3 stat cards: Total Products, Total Quantity, Inventory Value
+• Warehouse details panel (ID, name, location, status, dates)
+• Inventory table (SKU, product, qty, category, price, total value)
+• Delete confirmation with inventory warning
+• Uses nested `inventory[].product.{id,name,sku,salePrice,category,brand}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">warehouses/[id]/edit/page.tsx — Edit warehouse form</div>
+<pre>Key features:
+• Loads existing warehouse data on mount
+• Pre-fills name + location
+• Save/Cancel buttons
+• Validates name before submit
+• Redirects back to detail page on success</pre>
+    </div>
+  </div>
+
+  <p>Complete warehouse detail page showing inventory table with nested product data:</p>
+  <div class="file-card">
+    <div class="hdr">warehouses/[id]/page.tsx (core inventory section)</div>
+<pre>// Stats computed from warehouse.inventory
+const totalInventoryItems = warehouse?.inventory?.length || 0;
+const totalQuantity = warehouse?.inventory?.reduce((sum, item) =&gt; sum + item.quantity, 0) || 0;
+const totalValue = warehouse?.inventory?.reduce(
+  (sum, item) =&gt; sum + item.quantity * Number(item.product.salePrice), 0) || 0;
+
+// Inventory table rendering
+{warehouse.inventory &amp;&amp; warehouse.inventory.length &gt; 0 ? (
+  &lt;table className="w-full text-sm"&gt;
+    &lt;thead&gt;
+      &lt;tr className="bg-muted h-[33px]"&gt;
+        &lt;th className="px-5 py-2 text-left font-semibold text-foreground min-w-[100px]"&gt;SKU&lt;/th&gt;
+        &lt;th className="px-5 py-2 text-left font-semibold text-foreground min-w-[140px]"&gt;Product Name&lt;/th&gt;
+        &lt;th className="w-[80px] px-5 py-2 text-right font-semibold text-foreground"&gt;Qty&lt;/th&gt;
+        &lt;th className="w-[120px] px-5 py-2 text-left font-semibold text-foreground"&gt;Category&lt;/th&gt;
+        &lt;th className="w-[100px] px-5 py-2 text-right font-semibold text-foreground"&gt;Price&lt;/th&gt;
+        &lt;th className="w-[120px] px-5 py-2 text-right font-semibold text-foreground"&gt;Total Value&lt;/th&gt;
+      &lt;/tr&gt;
+    &lt;/thead&gt;
+    &lt;tbody&gt;
+      {warehouse.inventory.map((item) =&gt; (
+        &lt;tr key={item.product.id} className="h-[52px] border-b hover:bg-muted/30"&gt;
+          &lt;td className="px-5 font-mono text-xs text-foreground"&gt;{item.product.sku}&lt;/td&gt;
+          &lt;td className="px-5 font-medium text-foreground"&gt;{item.product.name}&lt;/td&gt;
+          &lt;td className="px-5 text-right font-semibold tabular-nums"&gt;{item.quantity}&lt;/td&gt;
+          &lt;td className="px-5 text-muted-foreground"&gt;{item.product.category?.name || "N/A"}&lt;/td&gt;
+          &lt;td className="px-5 text-right tabular-nums"&gt;
+            {formatCurrency.format(Number(item.product.salePrice))}
+          &lt;/td&gt;
+          &lt;td className="px-5 text-right font-semibold tabular-nums"&gt;
+            {formatCurrency.format(item.quantity * Number(item.product.salePrice))}
+          &lt;/td&gt;
+        &lt;/tr&gt;
+      ))}
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+) : (
+  &lt;div className="flex flex-col items-center py-12 text-muted-foreground"&gt;
+    &lt;Package className="h-12 w-12 mb-3 text-muted-foreground/50" /&gt;
+    &lt;p className="font-medium"&gt;No inventory in this warehouse&lt;/p&gt;
+  &lt;/div&gt;
+)}</pre>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>Section 4 — Stock Transfer Pages (2 files)</h2>
+  <!-- ============================================================= -->
+
+  <div class="file-card">
+    <div class="hdr">inventory/transfer/page.tsx (760 lines — Stock transfer form + history)</div>
+<pre>Key features:
+• Dual warehouse selection (from → to) with same-warehouse guard
+• Dynamic item rows with product search/select
+• Available quantity shown per product (fetched from warehouse inventory)
+• Quantity validation against available stock
+• Summary sidebar (items count, total units, from/to warehouse names)
+• Create Transfer button with loading state
+• Transfer history table with pagination below the form
+
+// ── State types ──
+type TransferItem = {
+  id: string; productId: string; productName: string;
+  productSku: string; productImage: string | null;
+  quantity: number; available: number;
+};
+
+// ── Warehouse inventory availability map ──
+useEffect(() =&gt; {
+  if (!fromWarehouseId) { setWarehouseAvailability({}); return; }
+  (async () =&gt; {
+    const data = await getWarehouseInventory(fromWarehouseId);
+    const map: Record&lt;string, number&gt; = {};
+    for (const row of data.inventory || []) { map[row.productId] = row.quantity; }
+    setWarehouseAvailability(map);
+  })();
+}, [fromWarehouseId, getWarehouseInventory]);
+
+// ── Add item — picks first available product not already in the list ──
+const addItem = () =&gt; {
+  const availableProducts = products.filter((p) =&gt; !usedProductIds.has(p.id));
+  if (availableProducts.length === 0) return;
+  const firstProduct = availableProducts[0];
+  const avail = warehouseAvailability[firstProduct.id] ?? 0;
+  setItems((prev) =&gt; [...prev, {
+    id: crypto.randomUUID?.() || Date.now().toString(),
+    productId: firstProduct.id, productName: firstProduct.name,
+    productSku: firstProduct.sku || "", productImage: firstProduct.imageUrl || null,
+    quantity: avail &gt; 0 ? 1 : 0, available: avail,
+  }]);
+};
+
+// ── ProductSelect component with search ──
+function ProductSelect({ products, value, usedIds, warehouseAvailability,
+    fromWarehouseSelected, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const availableProducts = useMemo(
+    () =&gt; products.filter((p) =&gt; p.id === value || !usedIds.has(p.id)),
+    [products, value, usedIds]);
+  const filtered = useMemo(() =&gt; {
+    if (!search) return availableProducts.slice(0, 50);
+    const q = search.toLowerCase();
+    return availableProducts.filter(
+      (p) =&gt; p.name.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q)
+    ).slice(0, 50);
+  }, [availableProducts, search]);
+
+  return (
+    &lt;Select value={value} onValueChange={onChange} open={open} onOpenChange={setOpen}&gt;
+      &lt;SelectTrigger className="h-[34px] text-xs rounded-[5px]"&gt;
+        &lt;SelectValue placeholder="Select product" /&gt;
+      &lt;/SelectTrigger&gt;
+      &lt;SelectContent className="min-w-[260px]"&gt;
+        {/* Search input inside dropdown */}
+        &lt;div className="flex items-center gap-2 px-2 py-1.5 border-b"
+          onKeyDown={(e) =&gt; e.stopPropagation()}&gt;
+          &lt;Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" /&gt;
+          &lt;input className="flex-1 bg-transparent text-sm outline-none"
+            placeholder="Search products..." value={search}
+            onChange={(e) =&gt; setSearch(e.target.value)} autoFocus /&gt;
+        &lt;/div&gt;
+        {filtered.map((product) =&gt; {
+          const availQty = warehouseAvailability[product.id] ?? 0;
+          const noStock = fromWarehouseSelected &amp;&amp; availQty === 0;
+          return (
+            &lt;SelectItem key={product.id} value={product.id}
+              disabled={noStock} className="text-xs py-1.5"&gt;
+              &lt;div className="flex items-center gap-2"&gt;
+                {/* product image/icon + name + sku + availability */}
+              &lt;/div&gt;
+            &lt;/SelectItem&gt;
+          );
+        })}
+      &lt;/SelectContent&gt;
+    &lt;/Select&gt;
+  );
+}</pre>
+  </div>
+
+  <div class="file-card">
+    <div class="hdr">inventory/transfer/[id]/page.tsx (217 lines — Transfer detail)</div>
+<pre>Key features:
+• Breadcrumb: Dashboard → Manage Stock → Stock Transfer → {reference}
+• 4 stat cards: Items, Total Qty, Date, Initiated By
+• Transfer Route panel: From/To warehouse with item counts
+• Transfer Items table: product, SKU, direction badge (out/in), qty
+• Notes section if present
+• Back to Transfers link
+
+// ── Separates items by direction ──
+const fromItems = transfer.items?.filter((i: any) =&gt; i.difference &lt; 0) || [];
+const toItems = transfer.items?.filter((i: any) =&gt; i.difference &gt; 0) || [];
+const fromWarehouseName = fromItems[0]?.warehouse?.name || "Unknown";
+const toWarehouseName = toItems[0]?.warehouse?.name || "Unknown";
+
+// ── Direction badge ──
+&lt;span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+  isFrom
+    ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
+    : "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
+}`}&gt;
+  {isFrom ? `${fromWarehouseName} →` : `→ ${toWarehouseName}`}
+&lt;/span&gt;</pre>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>Section 5 — Stock Adjustment Pages (2 files)</h2>
+  <!-- ============================================================= -->
+
+  <div class="file-card">
+    <div class="hdr">products/adjustment/page.tsx (655 lines — Stock adjustment form + history)</div>
+<pre>Key features:
+• Multi-item adjustment form: product + warehouse + new quantity per row
+• Fetches current stock when product/warehouse changes (via getProductInventory)
+• Shows previous/current/difference columns
+• Auto-calculates type (ADDITION / REMOVAL) from net change
+• Summary sidebar: items, type (Stock In/Out), net change
+• Recent Adjustments history table below
+
+// ── Fetch current stock for a product+warehouse ──
+const fetchCurrentStock = useCallback(
+  async (productId: string, warehouseId: string): Promise&lt;number&gt; =&gt; {
+    try {
+      const inv = await inventoryApi.getProductInventory(productId);
+      const found = inv.find((i) =&gt; i.warehouseId === warehouseId);
+      return found?.quantity ?? 0;
+    } catch { return 0; }
+  }, [inventoryApi]);
+
+// ── When product changes, update previous + default new qty ──
+const updateItemField = async (id, field, value) =&gt; {
+  if (field === "productId") {
+    const product = products.find((p) =&gt; p.id === value);
+    const qty = await fetchCurrentStock(value, item.warehouseId);
+    setItems((prev) =&gt; prev.map((i) =&gt; i.id === id ? {
+      ...i, productId: value, productName: product.name,
+      productSku: product.sku || "", productImage: product.imageUrl || null,
+      previousQuantity: qty, newQuantity: qty,
+    } : i));
+  }
+};
+
+// ── Submit — calculates net change then calls API ──
+const netChange = items.reduce((sum, i) =&gt; sum + (i.newQuantity - i.previousQuantity), 0);
+const calcType = netChange &gt;= 0 ? "ADDITION" : "REMOVAL";
+const result = await createStockAdjustment({
+  notes: notes.trim() || undefined,
+  type: calcType,
+  items: items.map((item) =&gt; ({
+    productId: item.productId, warehouseId: item.warehouseId,
+    previousQuantity: item.previousQuantity, newQuantity: item.newQuantity,
+  })),
+});
+toast({ description: `Reference: ${result.referenceNumber} — ${result.totalItems} item(s) adjusted (net: ${result.netChange &gt;= 0 ? "+" : ""}${result.netChange})` });
+setItems([]); setNotes(""); loadAdjustments();</pre>
+  </div>
+
+  <div class="file-card">
+    <div class="hdr">products/_services/stock-adjustment-service.ts (147 lines)</div>
+<pre>Service layer that maps backend response DTOs to frontend-friendly interfaces.
+The `createStockAdjustment` POST handler maps:
+  Backend StockAdjustmentDto → frontend StockAdjustmentResponse
+  - response.id → id
+  - response.referenceNumber → referenceNumber
+  - response.items[].product.name → .productName (flattened)
+  - response.items[].warehouse.name → .warehouseName (flattened)
+  - response.user?.name → .userName
+
+Hook returns: { createStockAdjustment, getStockAdjustments, getStockAdjustment }</pre>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>Section 6 — Product Detail Tabs (3 files)</h2>
+  <!-- ============================================================= -->
+
+  <div class="file-group">
+    <div class="file-card">
+      <div class="hdr">details-tab.tsx — Per-warehouse stock display</div>
+<pre>// Store / Warehouse field — lists all warehouses comma-separated
+{inventory.length &gt; 0 &amp;&amp; (
+  &lt;div&gt;
+    &lt;p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5"&gt;
+      Store / Warehouse&lt;/p&gt;
+    &lt;div className="flex flex-wrap gap-1"&gt;
+      {inventory.map((inv, idx) =&gt; (
+        &lt;span key={inv.warehouseId} className="text-[13px] font-semibold text-card-foreground"&gt;
+          {idx &gt; 0 &amp;&amp; &lt;span className="text-muted-foreground/50 mx-0.5"&gt;, &lt;/span&gt;}
+          {inv.warehouseName}
+        &lt;/span&gt;
+      ))}
+    &lt;/div&gt;
+  &lt;/div&gt;
+)}
+
+// Per-warehouse stock rows with status badges
+{inventory.length &gt; 0 &amp;&amp; (
+  &lt;div className="border-t border-border px-[20px] py-[14px] space-y-2"&gt;
+    {inventory.map((item) =&gt; (
+      &lt;div key={`${item.productId}-${item.warehouseId}`}
+           className="flex items-center justify-between"&gt;
+        &lt;div className="flex items-center gap-2"&gt;
+          &lt;Warehouse className="w-3.5 h-3.5 text-muted-foreground" /&gt;
+          &lt;span className="text-[13px] text-card-foreground"&gt;{item.warehouseName}&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div className="flex items-center gap-2"&gt;
+          &lt;span className="text-[13px] font-semibold text-card-foreground"&gt;{item.quantity} pc&lt;/span&gt;
+          {item.quantity === 0 &amp;&amp; &lt;Badge variant="destructive" className="text-[10px] h-4"&gt;Out&lt;/Badge&gt;}
+          {item.quantity &gt; 0 &amp;&amp; item.quantity &lt;= item.reorderLevel
+            &amp;&amp; &lt;Badge variant="destructive" className="text-[10px] h-4"&gt;Low&lt;/Badge&gt;}
+          {item.quantity &gt; item.reorderLevel
+            &amp;&amp; &lt;Badge variant="secondary" className="text-[10px] h-4 bg-green-100 text-green-700"&gt;OK&lt;/Badge&gt;}
+        &lt;/div&gt;
+      &lt;/div&gt;
+    ))}
+  &lt;/div&gt;
+)}</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">transfer-tab.tsx — Transfer history on product detail</div>
+<pre>Key features:
+• Stats: total transfers count, total items transferred
+• Searchable table: date, reference, warehouse, qty (+/-), notes, created by
+• Paginated (10 per page)
+• Color-coded quantities (green positive, red negative)</pre>
+    </div>
+    <div class="file-card">
+      <div class="hdr">adjustment-tab.tsx — Adjustment form on product detail</div>
+<pre>Key features:
+• Stats: total additions, total removals, adjustments count
+• New Adjustment form: date, reference, warehouse, type (radio), qty, note, document upload
+• Saves adjustment via product ID
+• Adjustment history table: date, reference, warehouse, type badge, prev/new qty, notes, by
+• Paginated (10 per page)</pre>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>Section 7 — Dashboard Widget (1 file)</h2>
+  <!-- ============================================================= -->
+
+  <div class="file-card">
+    <div class="hdr">components/dashboard/low-stock-products.tsx (87 lines)</div>
+<pre>"use client";
+import { AlertTriangle } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { LowStockProduct } from "./types";
+
+export function LowStockProducts({ products, loading }: LowStockProductsProps) {
+  return (
+    &lt;div className="border border-border rounded-lg h-full"&gt;
+      &lt;div className="p-5"&gt;
+        &lt;div className="flex items-center justify-between mb-4"&gt;
+          &lt;div className="flex items-center gap-2"&gt;
+            &lt;AlertTriangle className="h-5 w-5 text-red-500" /&gt;
+            &lt;h3 className="text-base font-semibold text-card-foreground"&gt;Low Stock Products&lt;/h3&gt;
+          &lt;/div&gt;
+          &lt;Link href="/products" className="text-xs font-medium text-blue-600"&gt;View All&lt;/Link&gt;
+        &lt;/div&gt;
+        {loading ? /* skeleton */ : products.length &gt; 0 ? products.map((product) =&gt; (
+          &lt;div key={product.productId} className="flex items-center justify-between py-3"&gt;
+            &lt;div className="flex items-center gap-3"&gt;
+              &lt;div className="w-12 h-12 rounded-lg bg-gradient-to-br from-red-100 to-red-200
+                flex items-center justify-center text-red-700 font-bold text-sm shrink-0"&gt;
+                {product.name.charAt(0).toUpperCase()}
+              &lt;/div&gt;
+              &lt;div&gt;
+                &lt;p className="text-sm font-bold text-card-foreground"&gt;{product.name}&lt;/p&gt;
+                &lt;p className="text-xs text-muted-foreground"&gt;SKU: {product.sku}&lt;/p&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div className="text-right"&gt;
+              &lt;p className="text-xs font-medium text-red-500"&gt;Low Stock&lt;/p&gt;
+              &lt;p className="text-sm font-bold text-card-foreground"&gt;{product.stockQuantity}&lt;/p&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        )) : (
+          &lt;p className="text-sm text-muted-foreground py-8 text-center"&gt;No low stock items&lt;/p&gt;
+        )}
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}</pre>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>Section 8 — File Inventory</h2>
+  <!-- ============================================================= -->
+
+  <table>
+    <tr><th>File</th><th>Lines</th><th>Purpose</th></tr>
+    <tr><td>hooks/use-inventory-api.ts</td><td>316</td><td>All warehouse/inventory/transfer/adjustment API methods</td></tr>
+    <tr><td>hooks/use-warehouses.ts</td><td>47</td><td>Simple warehouse list hook</td></tr>
+    <tr><td>products/_services/stock-adjustment-service.ts</td><td>147</td><td>Stock adjustment API with response mapping</td></tr>
+    <tr><td colspan="3"></td></tr>
+    <tr><td>inventory/page.tsx</td><td>560</td><td>Manage Stock page (table, filters, edit, export)</td></tr>
+    <tr><td>inventory/warehouses/page.tsx</td><td>354</td><td>Warehouse list with stats</td></tr>
+    <tr><td>inventory/warehouses/new/page.tsx</td><td>96</td><td>Create warehouse form</td></tr>
+    <tr><td>inventory/warehouses/[id]/page.tsx</td><td>284</td><td>Warehouse detail with inventory table</td></tr>
+    <tr><td>inventory/warehouses/[id]/edit/page.tsx</td><td>122</td><td>Edit warehouse form</td></tr>
+    <tr><td>inventory/transfer/page.tsx</td><td>760</td><td>Stock transfer form + history</td></tr>
+    <tr><td>inventory/transfer/[id]/page.tsx</td><td>217</td><td>Transfer detail page</td></tr>
+    <tr><td>products/adjustment/page.tsx</td><td>655</td><td>Stock adjustment form + history</td></tr>
+    <tr><td>products/stock-count/page.tsx</td><td>115</td><td>Physical stock count placeholder</td></tr>
+    <tr><td colspan="3"></td></tr>
+    <tr><td>components/products/detail/details-tab.tsx</td><td>543</td><td>Per-warehouse stock, specs, warranty panel</td></tr>
+    <tr><td>components/products/detail/transfer-tab.tsx</td><td>137</td><td>Transfer history on product detail</td></tr>
+    <tr><td>components/products/detail/adjustment-tab.tsx</td><td>271</td><td>Adjustment form on product detail</td></tr>
+    <tr><td>components/dashboard/low-stock-products.tsx</td><td>87</td><td>Low stock dashboard widget</td></tr>
+  </table>
+
+  <p><strong>Total: ~4,700 lines across 17 files</strong></p>
+
+</body>
+</html>

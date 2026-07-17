@@ -3,10 +3,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Inventory.DTOs;
-using Inv = OmniBlox.Domain.Entities.Inventory;
-using StockLedgerEntry = OmniBlox.Domain.Entities.StockLedgerEntry;
-using StockAdjustment = OmniBlox.Domain.Entities.StockAdjustment;
-using StockAdjustmentItem = OmniBlox.Domain.Entities.StockAdjustmentItem;
+using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 
 namespace OmniBlox.Application.Features.Inventory.Commands;
 
@@ -21,7 +19,18 @@ public record CreateStockAdjustmentCommand : IRequest<StockAdjustmentDto>
 public class CreateStockAdjustmentCommandHandler : IRequestHandler<CreateStockAdjustmentCommand, StockAdjustmentDto>
 {
     private readonly IApplicationDbContext _context;
-    public CreateStockAdjustmentCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IStockService _stockService;
+
+    public CreateStockAdjustmentCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
+    {
+        _context = context;
+        _currentUser = currentUser;
+        _stockService = stockService;
+    }
 
     public async Task<StockAdjustmentDto> Handle(CreateStockAdjustmentCommand request, CancellationToken ct)
     {
@@ -54,24 +63,35 @@ public class CreateStockAdjustmentCommandHandler : IRequestHandler<CreateStockAd
             int previousQty = inventory?.Quantity ?? 0;
             int difference = item.NewQuantity - previousQty;
 
-            if (inventory is null)
+            if (difference == 0)
             {
-                inventory = new Inv
+                var p0 = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
+                var w0 = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == item.WarehouseId, ct);
+                items.Add(new StockAdjustmentItemDto
                 {
-                    ProductId = item.ProductId,
-                    WarehouseId = item.WarehouseId,
-                    Quantity = item.NewQuantity,
-                };
-                _context.Inventories.Add(inventory);
-            }
-            else
-            {
-                inventory.Quantity = item.NewQuantity;
-                inventory.UpdatedAt = DateTime.UtcNow;
+                    Id = Guid.Empty,
+                    PreviousQuantity = previousQty,
+                    NewQuantity = item.NewQuantity,
+                    Difference = 0,
+                    Product = new ItemProductInfo { Name = p0?.Name ?? "", Sku = p0?.SKU ?? "", ImageUrl = p0?.ImageUrl },
+                    Warehouse = new ItemWarehouseInfo { Name = w0?.Name ?? "" },
+                });
+                totalItems++;
+                continue;
             }
 
-            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
-            if (product is not null) product.Stock += difference;
+            var movementType = difference > 0 ? MovementType.adjustment_in : MovementType.adjustment_out;
+
+            await _stockService.RecordMovementAsync(new RecordMovementArgs
+            {
+                ProductId = item.ProductId,
+                WarehouseId = item.WarehouseId,
+                MovementType = movementType,
+                Quantity = Math.Abs(difference),
+                ReferenceType = "adjustment",
+                ReferenceId = adjustment.Id,
+                UserId = _currentUser.UserId,
+            }, ct);
 
             _context.StockAdjustmentItems.Add(new StockAdjustmentItem
             {
@@ -83,17 +103,7 @@ public class CreateStockAdjustmentCommandHandler : IRequestHandler<CreateStockAd
                 Difference = difference,
             });
 
-            _context.StockLedgerEntries.Add(new StockLedgerEntry
-            {
-                ProductId = item.ProductId,
-                WarehouseId = item.WarehouseId,
-                Quantity = difference,
-                Balance = item.NewQuantity,
-                Type = request.Type == "ADDITION" ? "ADJUSTMENT_ADD" : "ADJUSTMENT_REMOVE",
-                Reference = adjustment.ReferenceNumber,
-                Note = request.Notes,
-            });
-
+            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
             var warehouse = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == item.WarehouseId, ct);
             items.Add(new StockAdjustmentItemDto
             {
@@ -101,16 +111,8 @@ public class CreateStockAdjustmentCommandHandler : IRequestHandler<CreateStockAd
                 PreviousQuantity = previousQty,
                 NewQuantity = item.NewQuantity,
                 Difference = difference,
-                Product = new ItemProductInfo
-                {
-                    Name = product?.Name ?? "",
-                    Sku = product?.SKU ?? "",
-                    ImageUrl = product?.ImageUrl,
-                },
-                Warehouse = new ItemWarehouseInfo
-                {
-                    Name = warehouse?.Name ?? "",
-                },
+                Product = new ItemProductInfo { Name = product?.Name ?? "", Sku = product?.SKU ?? "", ImageUrl = product?.ImageUrl },
+                Warehouse = new ItemWarehouseInfo { Name = warehouse?.Name ?? "" },
             });
 
             totalItems++;

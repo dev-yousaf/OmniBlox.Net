@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Sales.DTOs;
 using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
-using Inv = OmniBlox.Domain.Entities.Inventory;
 
 namespace OmniBlox.Application.Features.Sales.Commands;
 
@@ -31,10 +31,16 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public UpdateSaleCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly IStockService _stockService;
+
+    public UpdateSaleCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
     {
         _context = context;
         _currentUser = currentUser;
+        _stockService = stockService;
     }
 
     public async Task<SaleDetailDto> Handle(UpdateSaleCommand request, CancellationToken ct)
@@ -95,14 +101,20 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
         sale.ShippingAddress = request.ShippingAddress;
 
         // Restore stock if the sale was previously completed
-        if (oldStatus == "COMPLETED")
+        if (oldStatus == "COMPLETED" && oldWarehouseId.HasValue)
         {
-            if (oldWarehouseId.HasValue)
+            foreach (var item in oldItems)
             {
-                foreach (var item in oldItems)
+                await _stockService.RecordMovementAsync(new RecordMovementArgs
                 {
-                    await RestoreInventory(item.ProductId, item.Quantity, oldWarehouseId.Value, oldInvoiceNumber, ct);
-                }
+                    ProductId = item.ProductId,
+                    WarehouseId = oldWarehouseId.Value,
+                    MovementType = MovementType.sale_return,
+                    Quantity = item.Quantity,
+                    ReferenceType = "sale",
+                    ReferenceId = sale.Id,
+                    UserId = _currentUser.UserId,
+                }, ct);
             }
         }
 
@@ -125,7 +137,7 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
             sale.Items.Add(newSaleItem);
         }
 
-        // Decrement stock for completed status (works for both new and previously completed sales)
+        // Decrement stock for completed status
         if (request.Status == "COMPLETED")
         {
             var decrementWh = request.WarehouseId ?? sale.WarehouseId;
@@ -146,7 +158,16 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
 
                 foreach (var item in sale.Items)
                 {
-                    await DecrementInventory(item.ProductId, item.Quantity, decrementWh.Value, invoiceNumber, ct);
+                    await _stockService.RecordMovementAsync(new RecordMovementArgs
+                    {
+                        ProductId = item.ProductId,
+                        WarehouseId = decrementWh.Value,
+                        MovementType = MovementType.sale,
+                        Quantity = item.Quantity,
+                        ReferenceType = "sale",
+                        ReferenceId = sale.Id,
+                        UserId = _currentUser.UserId,
+                    }, ct);
                 }
             }
         }
@@ -165,70 +186,6 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
             .FirstAsync(x => x.Id == sale.Id, ct);
 
         return SaleDetailDto.FromEntity(result);
-    }
-
-    private async Task DecrementInventory(Guid productId, int quantity, Guid warehouseId, string reference, CancellationToken ct)
-    {
-        var inventory = await _context.Inventories
-            .FirstOrDefaultAsync(x => x.ProductId == productId && x.WarehouseId == warehouseId, ct);
-
-        if (inventory is null)
-        {
-            inventory = new Inv
-            {
-                ProductId = productId,
-                WarehouseId = warehouseId,
-                Quantity = 0,
-            };
-            _context.Inventories.Add(inventory);
-        }
-
-        inventory.Quantity -= quantity;
-
-        _context.StockLedgerEntries.Add(new StockLedgerEntry
-        {
-            Quantity = -quantity,
-            Balance = inventory.Quantity,
-            Type = "SALE",
-            Reference = reference,
-            ProductId = productId,
-            WarehouseId = warehouseId,
-        });
-
-        var product = await _context.Products.FirstAsync(x => x.Id == productId, ct);
-        product.Stock -= quantity;
-    }
-
-    private async Task RestoreInventory(Guid productId, int quantity, Guid warehouseId, string reference, CancellationToken ct)
-    {
-        var inventory = await _context.Inventories
-            .FirstOrDefaultAsync(x => x.ProductId == productId && x.WarehouseId == warehouseId, ct);
-
-        if (inventory is null)
-        {
-            inventory = new Inv
-            {
-                ProductId = productId,
-                WarehouseId = warehouseId,
-                Quantity = 0,
-            };
-            _context.Inventories.Add(inventory);
-        }
-
-        inventory.Quantity += quantity;
-
-        _context.StockLedgerEntries.Add(new StockLedgerEntry
-        {
-            Quantity = quantity,
-            Balance = inventory.Quantity,
-            Type = "SALE_REVERSAL",
-            Reference = reference,
-            ProductId = productId,
-            WarehouseId = warehouseId,
-        });
-
-        var product = await _context.Products.FirstAsync(x => x.Id == productId, ct);
-        product.Stock += quantity;
     }
 }
 

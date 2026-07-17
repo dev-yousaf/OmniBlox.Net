@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Inventory.DTOs;
+using OmniBlox.Domain.Enums;
 
 namespace OmniBlox.Application.Features.Inventory.Queries;
 
@@ -14,30 +15,34 @@ public record GetStockTransfersQuery : IRequest<TransferListResponse>
 public class GetStockTransfersQueryHandler : IRequestHandler<GetStockTransfersQuery, TransferListResponse>
 {
     private readonly IApplicationDbContext _context;
-    public GetStockTransfersQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetStockTransfersQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<TransferListResponse> Handle(GetStockTransfersQuery request, CancellationToken ct)
     {
-        var entries = await _context.StockLedgerEntries
-            .Include(l => l.Product)
-            .Include(l => l.Warehouse)
-            .Where(l => l.Type == "TRANSFER_OUT" || l.Type == "TRANSFER_IN")
-            .OrderByDescending(l => l.CreatedAt)
+        var movements = await _context.StockMovements
+            .Include(m => m.Product)
+            .Include(m => m.Warehouse)
+            .Where(m => m.Product!.CompanyId == _currentUser.CompanyId)
+            .Where(m => m.MovementType == MovementType.transfer_out || m.MovementType == MovementType.transfer_in)
+            .OrderByDescending(m => m.CreatedAt)
             .ToListAsync(ct);
 
-        var groups = entries
-            .GroupBy(l => l.Reference ?? "unknown")
+        var groups = movements
+            .GroupBy(m => m.ReferenceId ?? Guid.Empty)
             .Select(g =>
             {
-                var outEntry = g.FirstOrDefault(e => e.Type == "TRANSFER_OUT");
-                var inEntries = g.Where(e => e.Type == "TRANSFER_IN").ToList();
-                var allItems = g.ToList();
+                var outMovement = g.FirstOrDefault(e => e.MovementType == MovementType.transfer_out);
 
-                var items = allItems.Select(e => new StockAdjustmentItemDto
+                var items = g.Select(e => new StockAdjustmentItemDto
                 {
                     Id = e.Id,
-                    NewQuantity = Math.Abs(e.Quantity),
-                    Difference = e.Quantity,
+                    NewQuantity = e.Quantity,
+                    Difference = e.MovementType == MovementType.transfer_out ? -e.Quantity : e.Quantity,
                     Product = new ItemProductInfo
                     {
                         Name = e.Product?.Name ?? "",
@@ -53,10 +58,10 @@ public class GetStockTransfersQueryHandler : IRequestHandler<GetStockTransfersQu
                 return new StockTransferDto
                 {
                     Id = g.First().Id,
-                    ReferenceNumber = g.Key,
-                    TotalItems = allItems.Select(i => i.ProductId).Distinct().Count(),
+                    ReferenceNumber = $"TRF-{g.Key.ToString("N")[..8].ToUpperInvariant()}",
+                    TotalItems = g.Select(i => i.ProductId).Distinct().Count(),
                     AdjustmentDate = g.Min(e => e.CreatedAt),
-                    Notes = outEntry?.Note,
+                    Notes = null,
                     CreatedAt = g.Min(e => e.CreatedAt),
                     Items = items,
                 };

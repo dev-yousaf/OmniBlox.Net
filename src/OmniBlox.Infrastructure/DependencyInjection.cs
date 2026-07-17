@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Infrastructure.Auth;
 using OmniBlox.Infrastructure.Persistence;
+using OmniBlox.Infrastructure.Services;
 
 namespace OmniBlox.Infrastructure;
 
@@ -27,6 +28,8 @@ public static class DependencyInjection
             configuration.GetSection("Jwt"));
 
         services.AddScoped<IJwtService, JwtService>();
+
+        services.AddScoped<IStockService, StockService>();
 
         return services;
     }

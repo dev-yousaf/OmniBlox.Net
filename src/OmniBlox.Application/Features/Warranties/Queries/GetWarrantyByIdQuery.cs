@@ -15,11 +15,16 @@ public record GetWarrantyByIdQuery : IRequest<WarrantyDto>
 public class GetWarrantyByIdQueryHandler : IRequestHandler<GetWarrantyByIdQuery, WarrantyDto>
 {
     private readonly IApplicationDbContext _context;
-    public GetWarrantyByIdQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetWarrantyByIdQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<WarrantyDto> Handle(GetWarrantyByIdQuery request, CancellationToken ct)
     {
-        var entity = await _context.Warranties.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.Warranties.FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
         if (entity is null) throw new NotFoundException(nameof(Warranty), request.Id);
         return WarrantyDto.FromEntity(entity);
     }

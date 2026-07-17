@@ -9,11 +9,17 @@ public record ExportProductsQuery : IRequest<string>;
 public class ExportProductsQueryHandler : IRequestHandler<ExportProductsQuery, string>
 {
     private readonly IApplicationDbContext _context;
-    public ExportProductsQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public ExportProductsQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<string> Handle(ExportProductsQuery request, CancellationToken ct)
     {
         var products = await _context.Products
+            .Where(e => e.CompanyId == _currentUser.CompanyId)
             .OrderBy(p => p.Name)
             .ToListAsync(ct);
 

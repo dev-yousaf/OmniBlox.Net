@@ -17,15 +17,17 @@ public record GetProductsQuery : IRequest<ProductListResponse>
 public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, ProductListResponse>
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
 
-    public GetProductsQueryHandler(IApplicationDbContext context)
+    public GetProductsQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
     {
         _context = context;
+        _currentUser = currentUser;
     }
 
     public async Task<ProductListResponse> Handle(GetProductsQuery request, CancellationToken ct)
     {
-        var query = _context.Products.AsQueryable();
+        var query = _context.Products.Where(e => e.CompanyId == _currentUser.CompanyId).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
@@ -50,9 +52,25 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Product
             .Take(request.Limit)
             .ToListAsync(ct);
 
+        // Compute live stock from warehouse_stock to eliminate drift
+        var productIds = items.Select(p => p.Id).ToList();
+        var stockLookup = await _context.Inventories
+            .Where(i => productIds.Contains(i.ProductId))
+            .GroupBy(i => i.ProductId)
+            .Select(g => new { ProductId = g.Key, TotalStock = g.Sum(i => i.Quantity) })
+            .ToDictionaryAsync(x => x.ProductId, x => x.TotalStock, ct);
+
+        foreach (var product in items)
+        {
+            if (stockLookup.TryGetValue(product.Id, out var liveStock))
+                product.Stock = liveStock;
+            else
+                product.Stock = 0;
+        }
+
         return new ProductListResponse
         {
-            Products = items.Select(ProductDto.FromEntity).ToList(),
+            Products = items.Select(p => ProductDto.FromEntity(p)).ToList(),
             Total = total,
             Pages = (int)Math.Ceiling((double)total / request.Limit),
             Page = request.Page,

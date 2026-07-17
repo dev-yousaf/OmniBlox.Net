@@ -3,8 +3,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
-using Inv = OmniBlox.Domain.Entities.Inventory;
 
 namespace OmniBlox.Application.Features.SalesReturns.Commands;
 
@@ -16,7 +16,18 @@ public record DeleteSalesReturnCommand : IRequest
 public class DeleteSalesReturnCommandHandler : IRequestHandler<DeleteSalesReturnCommand>
 {
     private readonly IApplicationDbContext _context;
-    public DeleteSalesReturnCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IStockService _stockService;
+
+    public DeleteSalesReturnCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
+    {
+        _context = context;
+        _currentUser = currentUser;
+        _stockService = stockService;
+    }
 
     public async Task Handle(DeleteSalesReturnCommand request, CancellationToken ct)
     {
@@ -36,31 +47,23 @@ public class DeleteSalesReturnCommandHandler : IRequestHandler<DeleteSalesReturn
                 var inventory = await _context.Inventories
                     .FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == salesReturn.WarehouseId, ct);
 
-                if (inventory is null)
+                var availableQty = inventory?.Quantity ?? 0;
+                if (item.Quantity > availableQty)
                 {
-                    inventory = new Inv
-                    {
-                        ProductId = item.ProductId,
-                        WarehouseId = salesReturn.WarehouseId,
-                        Quantity = 0,
-                    };
-                    _context.Inventories.Add(inventory);
+                    throw new InvalidOperationException(
+                        $"Insufficient stock for product '{item.Product?.Name}'. Available: {availableQty}, requested: {item.Quantity}.");
                 }
 
-                inventory.Quantity -= item.Quantity;
-
-                _context.StockLedgerEntries.Add(new StockLedgerEntry
+                await _stockService.RecordMovementAsync(new RecordMovementArgs
                 {
-                    Quantity = -item.Quantity,
-                    Balance = inventory.Quantity,
-                    Type = "RETURN_DELETE",
-                    Reference = salesReturn.ReferenceNumber,
                     ProductId = item.ProductId,
                     WarehouseId = salesReturn.WarehouseId,
-                });
-
-                var product = await _context.Products.FirstAsync(x => x.Id == item.ProductId, ct);
-                product.Stock -= item.Quantity;
+                    MovementType = MovementType.sale,
+                    Quantity = item.Quantity,
+                    ReferenceType = "sale_return",
+                    ReferenceId = salesReturn.Id,
+                    UserId = _currentUser.UserId,
+                }, ct);
 
                 if (item.SaleItemId.HasValue && salesReturn.Sale is not null)
                 {

@@ -10,11 +10,16 @@ public record GetUnitsQuery : IRequest<List<UnitDto>>;
 public class GetUnitsQueryHandler : IRequestHandler<GetUnitsQuery, List<UnitDto>>
 {
     private readonly IApplicationDbContext _context;
-    public GetUnitsQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetUnitsQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<List<UnitDto>> Handle(GetUnitsQuery request, CancellationToken ct)
     {
-        var items = await _context.Units.OrderBy(x => x.Name).ToListAsync(ct);
+        var items = await _context.Units.Where(e => e.CompanyId == _currentUser.CompanyId).OrderBy(x => x.Name).ToListAsync(ct);
         return items.Select(UnitDto.FromEntity).ToList();
     }
 }

@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Purchases.DTOs;
 using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
-using Inv = OmniBlox.Domain.Entities.Inventory;
 
 namespace OmniBlox.Application.Features.Purchases.Commands;
 
@@ -18,7 +18,18 @@ public record ReceivePurchaseOrderCommand : IRequest<PurchaseOrderDetailDto>
 public class ReceivePurchaseOrderCommandHandler : IRequestHandler<ReceivePurchaseOrderCommand, PurchaseOrderDetailDto>
 {
     private readonly IApplicationDbContext _context;
-    public ReceivePurchaseOrderCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IStockService _stockService;
+
+    public ReceivePurchaseOrderCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
+    {
+        _context = context;
+        _currentUser = currentUser;
+        _stockService = stockService;
+    }
 
     public async Task<PurchaseOrderDetailDto> Handle(ReceivePurchaseOrderCommand request, CancellationToken ct)
     {
@@ -41,39 +52,16 @@ public class ReceivePurchaseOrderCommandHandler : IRequestHandler<ReceivePurchas
 
         foreach (var item in order.Items)
         {
-            var inventory = await _context.Inventories
-                .FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == request.WarehouseId, ct);
-
-            if (inventory is null)
-            {
-                inventory = new Inv
-                {
-                    ProductId = item.ProductId,
-                    WarehouseId = request.WarehouseId,
-                    Quantity = item.Quantity,
-                };
-                _context.Inventories.Add(inventory);
-            }
-            else
-            {
-                inventory.Quantity += item.Quantity;
-                inventory.UpdatedAt = DateTime.UtcNow;
-            }
-
-            _context.StockLedgerEntries.Add(new StockLedgerEntry
+            await _stockService.RecordMovementAsync(new RecordMovementArgs
             {
                 ProductId = item.ProductId,
                 WarehouseId = request.WarehouseId,
+                MovementType = MovementType.purchase,
                 Quantity = item.Quantity,
-                Balance = inventory.Quantity,
-                Type = "PURCHASE",
-                Reference = order.ReferenceNumber,
-            });
-
-            if (item.Product is not null)
-            {
-                item.Product.Stock += item.Quantity;
-            }
+                ReferenceType = "purchase",
+                ReferenceId = order.Id,
+                UserId = _currentUser.UserId,
+            }, ct);
         }
 
         await _context.SaveChangesAsync(ct);

@@ -13,13 +13,19 @@ public record GetSubCategoriesQuery : IRequest<List<SubCategoryDto>>
 public class GetSubCategoriesQueryHandler : IRequestHandler<GetSubCategoriesQuery, List<SubCategoryDto>>
 {
     private readonly IApplicationDbContext _context;
-    public GetSubCategoriesQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetSubCategoriesQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<List<SubCategoryDto>> Handle(GetSubCategoriesQuery request, CancellationToken ct)
     {
         var query = _context.SubCategories
             .Include(x => x.Category)
-            .AsQueryable();
+            .AsQueryable()
+            .Where(x => x.CompanyId == _currentUser.CompanyId);
 
         if (request.CategoryId.HasValue)
             query = query.Where(x => x.CategoryId == request.CategoryId.Value);

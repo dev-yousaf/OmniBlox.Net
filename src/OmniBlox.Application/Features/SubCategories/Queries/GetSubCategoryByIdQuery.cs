@@ -15,11 +15,16 @@ public record GetSubCategoryByIdQuery : IRequest<SubCategoryDto>
 public class GetSubCategoryByIdQueryHandler : IRequestHandler<GetSubCategoryByIdQuery, SubCategoryDto>
 {
     private readonly IApplicationDbContext _context;
-    public GetSubCategoryByIdQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetSubCategoryByIdQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<SubCategoryDto> Handle(GetSubCategoryByIdQuery request, CancellationToken ct)
     {
-        var entity = await _context.SubCategories.Include(x => x.Category).FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.SubCategories.Include(x => x.Category).FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
         if (entity is null) throw new NotFoundException(nameof(SubCategory), request.Id);
         return SubCategoryDto.FromEntity(entity);
     }

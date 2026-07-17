@@ -13,7 +13,12 @@ public record GetStockAdjustmentByIdQuery : IRequest<StockAdjustmentDto>
 public class GetStockAdjustmentByIdQueryHandler : IRequestHandler<GetStockAdjustmentByIdQuery, StockAdjustmentDto>
 {
     private readonly IApplicationDbContext _context;
-    public GetStockAdjustmentByIdQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetStockAdjustmentByIdQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<StockAdjustmentDto> Handle(GetStockAdjustmentByIdQuery request, CancellationToken ct)
     {
@@ -22,7 +27,7 @@ public class GetStockAdjustmentByIdQueryHandler : IRequestHandler<GetStockAdjust
                 .ThenInclude(i => i.Product)
             .Include(a => a.Items)
                 .ThenInclude(i => i.Warehouse)
-            .FirstOrDefaultAsync(a => a.Id == request.Id, ct);
+            .FirstOrDefaultAsync(a => a.Id == request.Id && a.CompanyId == _currentUser.CompanyId, ct);
 
         if (adjustment is null)
             throw new KeyNotFoundException("Stock adjustment not found.");

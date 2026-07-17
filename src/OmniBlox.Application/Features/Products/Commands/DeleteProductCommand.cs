@@ -28,6 +28,16 @@ public class DeleteProductCommandHandler : IRequestHandler<DeleteProductCommand>
         if (product is null)
             throw new NotFoundException(nameof(Product), request.Id);
 
+        var stockMovements = await _context.StockMovements
+            .Where(x => x.ProductId == request.Id)
+            .ToListAsync(ct);
+        _context.StockMovements.RemoveRange(stockMovements);
+
+        var inventories = await _context.Inventories
+            .Where(x => x.ProductId == request.Id)
+            .ToListAsync(ct);
+        _context.Inventories.RemoveRange(inventories);
+
         _context.Products.Remove(product);
         await _context.SaveChangesAsync(ct);
     }

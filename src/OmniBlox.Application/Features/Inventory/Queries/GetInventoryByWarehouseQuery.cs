@@ -13,7 +13,12 @@ public record GetInventoryByWarehouseQuery : IRequest<List<InventoryDto>>
 public class GetInventoryByWarehouseQueryHandler : IRequestHandler<GetInventoryByWarehouseQuery, List<InventoryDto>>
 {
     private readonly IApplicationDbContext _context;
-    public GetInventoryByWarehouseQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetInventoryByWarehouseQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<List<InventoryDto>> Handle(GetInventoryByWarehouseQuery request, CancellationToken ct)
     {

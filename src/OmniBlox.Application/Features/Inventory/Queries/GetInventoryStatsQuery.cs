@@ -10,7 +10,12 @@ public record GetInventoryStatsQuery : IRequest<InventoryStatsDto>;
 public class GetInventoryStatsQueryHandler : IRequestHandler<GetInventoryStatsQuery, InventoryStatsDto>
 {
     private readonly IApplicationDbContext _context;
-    public GetInventoryStatsQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetInventoryStatsQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<InventoryStatsDto> Handle(GetInventoryStatsQuery request, CancellationToken ct)
     {

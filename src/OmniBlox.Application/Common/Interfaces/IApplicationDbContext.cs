@@ -18,6 +18,21 @@ public interface IApplicationDbContext
     DbSet<Inventory> Inventories { get; }
     DbSet<StockAdjustment> StockAdjustments { get; }
     DbSet<StockAdjustmentItem> StockAdjustmentItems { get; }
-    DbSet<StockLedgerEntry> StockLedgerEntries { get; }
+
+    DbSet<StockMovement> StockMovements { get; }
+    DbSet<Customer> Customers { get; }
+    DbSet<Supplier> Suppliers { get; }
+    DbSet<Biller> Billers { get; }
+    DbSet<Sale> Sales { get; }
+    DbSet<SaleItem> SaleItems { get; }
+    DbSet<SalesReturn> SalesReturns { get; }
+    DbSet<SalesReturnItem> SalesReturnItems { get; }
+    DbSet<PurchaseOrder> PurchaseOrders { get; }
+    DbSet<PurchaseOrderItem> PurchaseOrderItems { get; }
+    DbSet<PurchaseReturn> PurchaseReturns { get; }
+    DbSet<PurchaseReturnItem> PurchaseReturnItems { get; }
+    DbSet<Quotation> Quotations { get; }
+    DbSet<QuotationItem> QuotationItems { get; }
+    DbSet<Invitation> Invitations { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -10,11 +10,17 @@ public record GetWarehousesQuery : IRequest<List<WarehouseDto>>;
 public class GetWarehousesQueryHandler : IRequestHandler<GetWarehousesQuery, List<WarehouseDto>>
 {
     private readonly IApplicationDbContext _context;
-    public GetWarehousesQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetWarehousesQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<List<WarehouseDto>> Handle(GetWarehousesQuery request, CancellationToken ct)
     {
         var items = await _context.Warehouses
+            .Where(w => w.CompanyId == _currentUser.CompanyId)
             .Include(w => w.Inventories)
             .OrderBy(x => x.Name)
             .ToListAsync(ct);

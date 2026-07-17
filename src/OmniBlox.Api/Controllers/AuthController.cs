@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using OmniBlox.Application.Features.Auth.Commands;
 using OmniBlox.Application.Features.Auth.DTOs;
 using OmniBlox.Application.Features.Auth.Queries;
+using OmniBlox.Application.Features.Team.DTOs;
 
 namespace OmniBlox.Api.Controllers;
 
@@ -107,6 +108,18 @@ public class AuthController : ControllerBase
 
         await _mediator.Send(command, ct);
         return Ok(new { message = "Password changed." });
+    }
+
+    [HttpPost("accept-invitation")]
+    [AllowAnonymous]
+    public async Task<ActionResult> AcceptInvitation(AcceptInvitationRequest request, CancellationToken ct)
+    {
+        await _mediator.Send(new AcceptInvitationCommand
+        {
+            Token = request.Token,
+            Password = request.Password,
+        }, ct);
+        return Ok(new { message = "Invitation accepted. You can now log in." });
     }
 
     [HttpGet("validate")]

@@ -15,11 +15,16 @@ public record GetUnitByIdQuery : IRequest<UnitDto>
 public class GetUnitByIdQueryHandler : IRequestHandler<GetUnitByIdQuery, UnitDto>
 {
     private readonly IApplicationDbContext _context;
-    public GetUnitByIdQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetUnitByIdQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<UnitDto> Handle(GetUnitByIdQuery request, CancellationToken ct)
     {
-        var entity = await _context.Units.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.Units.FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
         if (entity is null) throw new NotFoundException(nameof(Domain.Entities.Unit), request.Id);
         return UnitDto.FromEntity(entity);
     }

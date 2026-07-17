@@ -3,8 +3,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
-using Inv = OmniBlox.Domain.Entities.Inventory;
 
 namespace OmniBlox.Application.Features.Sales.Commands;
 
@@ -17,10 +17,16 @@ public class DeleteSaleCommandHandler : IRequestHandler<DeleteSaleCommand>
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public DeleteSaleCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly IStockService _stockService;
+
+    public DeleteSaleCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
     {
         _context = context;
         _currentUser = currentUser;
+        _stockService = stockService;
     }
 
     public async Task Handle(DeleteSaleCommand request, CancellationToken ct)
@@ -32,38 +38,20 @@ public class DeleteSaleCommandHandler : IRequestHandler<DeleteSaleCommand>
         if (sale is null)
             throw new NotFoundException(nameof(Sale), request.Id);
 
-        if (sale.Status == "COMPLETED")
+        if (sale.Status == "COMPLETED" && sale.WarehouseId.HasValue)
         {
             foreach (var item in sale.Items)
             {
-                var inventory = await _context.Inventories
-                    .FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == sale.WarehouseId, ct);
-
-                if (inventory is null)
+                await _stockService.RecordMovementAsync(new RecordMovementArgs
                 {
-                    inventory = new Inv
-                    {
-                        ProductId = item.ProductId,
-                        WarehouseId = sale.WarehouseId!.Value,
-                        Quantity = 0,
-                    };
-                    _context.Inventories.Add(inventory);
-                }
-
-                inventory.Quantity += item.Quantity;
-
-                _context.StockLedgerEntries.Add(new StockLedgerEntry
-                {
-                    Quantity = item.Quantity,
-                    Balance = inventory.Quantity,
-                    Type = "SALE_DELETE",
-                    Reference = sale.InvoiceNumber,
                     ProductId = item.ProductId,
-                    WarehouseId = sale.WarehouseId,
-                });
-
-                var product = await _context.Products.FirstAsync(x => x.Id == item.ProductId, ct);
-                product.Stock += item.Quantity;
+                    WarehouseId = sale.WarehouseId.Value,
+                    MovementType = MovementType.sale_return,
+                    Quantity = item.Quantity,
+                    ReferenceType = "sale",
+                    ReferenceId = sale.Id,
+                    UserId = _currentUser.UserId,
+                }, ct);
             }
         }
 

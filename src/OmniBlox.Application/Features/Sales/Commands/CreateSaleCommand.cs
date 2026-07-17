@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Sales.DTOs;
 using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
-using Inv = OmniBlox.Domain.Entities.Inventory;
 
 namespace OmniBlox.Application.Features.Sales.Commands;
 
@@ -30,10 +30,16 @@ public class CreateSaleCommandHandler : IRequestHandler<CreateSaleCommand, SaleD
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public CreateSaleCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly IStockService _stockService;
+
+    public CreateSaleCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
     {
         _context = context;
         _currentUser = currentUser;
+        _stockService = stockService;
     }
 
     public async Task<SaleDetailDto> Handle(CreateSaleCommand request, CancellationToken ct)
@@ -110,7 +116,16 @@ public class CreateSaleCommandHandler : IRequestHandler<CreateSaleCommand, SaleD
         {
             foreach (var item in sale.Items)
             {
-                await DecrementInventory(item.ProductId, item.Quantity, request.WarehouseId, invoiceNumber, ct);
+                await _stockService.RecordMovementAsync(new RecordMovementArgs
+                {
+                    ProductId = item.ProductId,
+                    WarehouseId = request.WarehouseId,
+                    MovementType = MovementType.sale,
+                    Quantity = item.Quantity,
+                    ReferenceType = "sale",
+                    ReferenceId = sale.Id,
+                    UserId = _currentUser.UserId,
+                }, ct);
             }
         }
 
@@ -124,40 +139,6 @@ public class CreateSaleCommandHandler : IRequestHandler<CreateSaleCommand, SaleD
             .FirstAsync(x => x.Id == sale.Id, ct);
 
         return SaleDetailDto.FromEntity(result);
-    }
-
-    private async Task DecrementInventory(Guid productId, int quantity, Guid warehouseId, string reference, CancellationToken ct)
-    {
-        var inventory = await _context.Inventories
-            .FirstOrDefaultAsync(x => x.ProductId == productId && x.WarehouseId == warehouseId, ct);
-
-        if (inventory is null)
-        {
-            inventory = new Inv
-            {
-                ProductId = productId,
-                WarehouseId = warehouseId,
-                Quantity = 0,
-            };
-            _context.Inventories.Add(inventory);
-        }
-
-        inventory.Quantity -= quantity;
-
-        var balance = inventory.Quantity;
-
-        _context.StockLedgerEntries.Add(new StockLedgerEntry
-        {
-            Quantity = -quantity,
-            Balance = balance,
-            Type = "SALE",
-            Reference = reference,
-            ProductId = productId,
-            WarehouseId = warehouseId,
-        });
-
-        var product = await _context.Products.FirstAsync(x => x.Id == productId, ct);
-        product.Stock -= quantity;
     }
 }
 

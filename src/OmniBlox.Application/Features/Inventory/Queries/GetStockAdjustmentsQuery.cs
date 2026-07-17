@@ -14,14 +14,22 @@ public record GetStockAdjustmentsQuery : IRequest<AdjustmentListResponse>
 public class GetStockAdjustmentsQueryHandler : IRequestHandler<GetStockAdjustmentsQuery, AdjustmentListResponse>
 {
     private readonly IApplicationDbContext _context;
-    public GetStockAdjustmentsQueryHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public GetStockAdjustmentsQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<AdjustmentListResponse> Handle(GetStockAdjustmentsQuery request, CancellationToken ct)
     {
-        var total = await _context.StockAdjustments.CountAsync(ct);
+        var total = await _context.StockAdjustments
+            .Where(a => a.CompanyId == _currentUser.CompanyId)
+            .CountAsync(ct);
         var pages = (int)Math.Ceiling(total / (double)request.Limit);
 
         var adjustments = await _context.StockAdjustments
+            .Where(a => a.CompanyId == _currentUser.CompanyId)
             .Include(a => a.Items)
                 .ThenInclude(i => i.Product)
             .Include(a => a.Items)

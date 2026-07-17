@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Sales.DTOs;
 using OmniBlox.Domain.Entities;
+using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
-using Inv = OmniBlox.Domain.Entities.Inventory;
 
 namespace OmniBlox.Application.Features.Sales.Commands;
 
@@ -18,10 +18,16 @@ public class MarkSalePaidCommandHandler : IRequestHandler<MarkSalePaidCommand, S
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public MarkSalePaidCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly IStockService _stockService;
+
+    public MarkSalePaidCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IStockService stockService)
     {
         _context = context;
         _currentUser = currentUser;
+        _stockService = stockService;
     }
 
     public async Task<SaleDetailDto> Handle(MarkSalePaidCommand request, CancellationToken ct)
@@ -41,7 +47,7 @@ public class MarkSalePaidCommandHandler : IRequestHandler<MarkSalePaidCommand, S
         sale.PaymentStatus = "PAID";
         sale.Status = "COMPLETED";
 
-        if (wasPending)
+        if (wasPending && sale.WarehouseId.HasValue)
         {
             foreach (var item in sale.Items)
             {
@@ -55,31 +61,16 @@ public class MarkSalePaidCommandHandler : IRequestHandler<MarkSalePaidCommand, S
                         $"Insufficient stock for product '{item.Product?.Name}'. Available: {availableQty}, requested: {item.Quantity}.");
                 }
 
-                if (inventory is null)
+                await _stockService.RecordMovementAsync(new RecordMovementArgs
                 {
-                    inventory = new Inv
-                    {
-                        ProductId = item.ProductId,
-                        WarehouseId = sale.WarehouseId!.Value,
-                        Quantity = 0,
-                    };
-                    _context.Inventories.Add(inventory);
-                }
-
-                inventory.Quantity -= item.Quantity;
-
-                _context.StockLedgerEntries.Add(new StockLedgerEntry
-                {
-                    Quantity = -item.Quantity,
-                    Balance = inventory.Quantity,
-                    Type = "SALE",
-                    Reference = sale.InvoiceNumber,
                     ProductId = item.ProductId,
-                    WarehouseId = sale.WarehouseId,
-                });
-
-                var product = await _context.Products.FirstAsync(x => x.Id == item.ProductId, ct);
-                product.Stock -= item.Quantity;
+                    WarehouseId = sale.WarehouseId.Value,
+                    MovementType = MovementType.sale,
+                    Quantity = item.Quantity,
+                    ReferenceType = "sale",
+                    ReferenceId = sale.Id,
+                    UserId = _currentUser.UserId,
+                }, ct);
             }
         }
 

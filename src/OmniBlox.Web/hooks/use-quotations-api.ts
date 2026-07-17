@@ -1,133 +1,110 @@
+"use client";
+
 import { useAuthenticatedApi } from "./use-authenticated-api";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
+
+export type QuotationStatus = "DRAFT" | "PENDING" | "COMPLETED" | "CANCELLED";
 
 export interface QuotationItem {
   id: string;
   productId: string;
+  productName: string;
+  productSku: string | null;
   quantity: number;
-  unitPrice: number | string;
-  product: {
-    id: string;
-    name: string;
-    sku: string;
-  };
+  unitPrice: number;
+  total: number;
 }
 
-export interface Quotation {
+export interface QuotationSummary {
   id: string;
   referenceNumber: string;
-  totalAmount: number | string;
-  taxAmount: number | string;
-  discount: number | string;
-  status: "DRAFT" | "PENDING" | "COMPLETED" | "CANCELLED";
+  customerId: string;
+  customerName: string;
   quoteDate: string;
   expiryDate: string | null;
-  notes: string | null;
+  status: QuotationStatus;
+  totalAmount: number;
   createdAt: string;
-  updatedAt: string;
-  customerId: string;
-  customer: {
-    id: string;
-    name: string;
-    email: string | null;
-    phone: string | null;
-    address: string | null;
-  };
-  user: {
-    id: string;
-    name: string;
-    email: string;
-  };
+}
+
+export interface QuotationDetail extends QuotationSummary {
+  notes?: string | null;
   items: QuotationItem[];
 }
 
-// Alias for backward compatibility and clarity
-export type QuotationWithDetails = Quotation;
+export interface QuotationsListResponse {
+  quotations: QuotationSummary[];
+  total: number;
+  pages: number;
+}
 
-export interface CreateQuotationDto {
+export interface CreateQuotationPayload {
   customerId: string;
   quoteDate: string;
-  expiryDate?: string;
+  expiryDate?: string | null;
+  status?: QuotationStatus;
+  notes?: string;
   items: Array<{
     productId: string;
     quantity: number;
     unitPrice: number;
   }>;
-  notes?: string;
 }
 
-export interface UpdateQuotationDto extends Partial<CreateQuotationDto> {}
+export interface UpdateQuotationPayload extends Partial<CreateQuotationPayload> {}
 
-export interface UpdateQuotationStatusDto {
-  status: "PENDING" | "COMPLETED" | "CANCELLED";
+export interface ConvertQuotationPayload {
+  warehouseId: string;
+  saleDate: string;
+  dueDate: string;
+  status?: string;
+  paymentStatus?: string;
+  paymentMethod?: string | null;
+  notes?: string;
+  shippingAddress?: string;
+}
+
+export interface QuotationSaleResult {
+  saleId: string;
+  invoiceNumber: string;
+  totalAmount: number;
+  message: string;
 }
 
 export function useQuotationsApi() {
-  const { get, post, put, patch, delete: del } = useAuthenticatedApi();
+  const { get, post, put, delete: del } = useAuthenticatedApi();
 
-  const getQuotations = useCallback(async (): Promise<Quotation[]> => {
-    return get("/quotations") as Promise<Quotation[]>;
+  const list = useCallback(async (filters: Record<string, any> = {}): Promise<QuotationsListResponse> => {
+    const params = new URLSearchParams();
+    if (filters.page) params.set("page", String(filters.page));
+    if (filters.limit) params.set("limit", String(filters.limit));
+    if (filters.status) params.set("status", filters.status);
+    if (filters.customerId) params.set("customerId", filters.customerId);
+    if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+    if (filters.dateTo) params.set("dateTo", filters.dateTo);
+    const qs = params.toString();
+    return get(`/quotations${qs ? `?${qs}` : ""}`) as Promise<QuotationsListResponse>;
   }, [get]);
 
-  const getQuotation = useCallback(
-    async (id: string): Promise<Quotation> => {
-      return get(`/quotations/${id}`) as Promise<Quotation>;
-    },
-    [get]
-  );
+  const getById = useCallback(async (id: string): Promise<QuotationDetail> => {
+    return get(`/quotations/${id}`) as Promise<QuotationDetail>;
+  }, [get]);
 
-  const createQuotation = useCallback(
-    async (data: CreateQuotationDto): Promise<Quotation> => {
-      return post("/quotations", data) as Promise<Quotation>;
-    },
-    [post]
-  );
+  const create = useCallback(async (data: CreateQuotationPayload): Promise<QuotationDetail> => {
+    return post("/quotations", data) as Promise<QuotationDetail>;
+  }, [post]);
 
-  const updateQuotation = useCallback(
-    async (id: string, data: UpdateQuotationDto): Promise<Quotation> => {
-      return put(`/quotations/${id}`, data) as Promise<Quotation>;
-    },
-    [put]
-  );
+  const update = useCallback(async (id: string, data: UpdateQuotationPayload): Promise<QuotationDetail> => {
+    return put(`/quotations/${id}`, data) as Promise<QuotationDetail>;
+  }, [put]);
 
-  const updateQuotationStatus = useCallback(
-    async (id: string, data: UpdateQuotationStatusDto): Promise<Quotation> => {
-      return patch(`/quotations/${id}/status`, data) as Promise<Quotation>;
-    },
-    [patch]
-  );
+  const remove = useCallback(async (id: string): Promise<void> => {
+    await del(`/quotations/${id}`);
+  }, [del]);
 
-  const deleteQuotation = useCallback(
-    async (id: string): Promise<{ message: string }> => {
-      return del(`/quotations/${id}`) as Promise<{ message: string }>;
-    },
-    [del]
-  );
+  const convertToSale = useCallback(async (id: string, data: ConvertQuotationPayload): Promise<QuotationSaleResult> => {
+    return post(`/quotations/${id}/convert-to-sale`, data) as Promise<QuotationSaleResult>;
+  }, [post]);
 
-  const convertQuotationToSale = useCallback(
-    async (id: string, warehouseId: string): Promise<any> => {
-      return post(`/quotations/${id}/convert-to-sale`, {
-        warehouseId,
-      }) as Promise<any>;
-    },
-    [post]
-  );
-
-  const getQuotationStockLevels = useCallback(
-    async (id: string): Promise<any> => {
-      return get(`/quotations/${id}/stock-levels`) as Promise<any>;
-    },
-    [get]
-  );
-
-  return {
-    getQuotations,
-    getQuotation,
-    createQuotation,
-    updateQuotation,
-    updateQuotationStatus,
-    deleteQuotation,
-    convertQuotationToSale,
-    getQuotationStockLevels,
-  };
+  return useMemo(() => ({ list, getById, create, update, remove, convertToSale }), [list, getById, create, update, remove, convertToSale]);
 }
