@@ -106,8 +106,8 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             ItemCode = request.ItemCode,
             Manufacturer = request.Manufacturer,
             Warranty = request.Warranty,
-            ManufacturedDate = request.ManufacturedDate,
-            ExpiryDate = request.ExpiryDate,
+            ManufacturedDate = request.ManufacturedDate is not null ? DateTime.SpecifyKind(request.ManufacturedDate.Value, DateTimeKind.Utc) : null,
+            ExpiryDate = request.ExpiryDate is not null ? DateTime.SpecifyKind(request.ExpiryDate.Value, DateTimeKind.Utc) : null,
             CompanyId = companyId,
         };
 

@@ -82,8 +82,8 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         if (request.ItemCode is not null) product.ItemCode = request.ItemCode;
         if (request.Manufacturer is not null) product.Manufacturer = request.Manufacturer;
         if (request.Warranty is not null) product.Warranty = request.Warranty;
-        if (request.ManufacturedDate is not null) product.ManufacturedDate = request.ManufacturedDate;
-        if (request.ExpiryDate is not null) product.ExpiryDate = request.ExpiryDate;
+        if (request.ManufacturedDate is not null) product.ManufacturedDate = DateTime.SpecifyKind(request.ManufacturedDate.Value, DateTimeKind.Utc);
+        if (request.ExpiryDate is not null) product.ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate.Value, DateTimeKind.Utc);
 
         product.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync(ct);
