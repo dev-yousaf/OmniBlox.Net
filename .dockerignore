@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+.git/
+.gitignore
+src/OmniBlox.Web/
+node_modules/
+.next/
+**/*.json.local
+**/appsettings.Development.json
+**/appsettings.*.local.json
+**/appsettings.Sample.json

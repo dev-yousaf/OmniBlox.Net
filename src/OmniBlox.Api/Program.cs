@@ -82,6 +82,9 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
+   .AllowAnonymous();
+
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
