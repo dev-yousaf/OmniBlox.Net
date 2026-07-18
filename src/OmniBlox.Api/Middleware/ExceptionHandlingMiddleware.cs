@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using FluentValidation;
 using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Api.Middleware;
@@ -32,25 +33,57 @@ public class ExceptionHandlingMiddleware
         Console.Error.WriteLine(ex.StackTrace);
 #endif
 
-        var (statusCode, message) = ex switch
-        {
-            UnauthorizedException => (HttpStatusCode.Unauthorized, ex.Message),
-            NotFoundException => (HttpStatusCode.NotFound, ex.Message),
-            ConflictException => (HttpStatusCode.Conflict, ex.Message),
-            FluentValidation.ValidationException validationEx
-                => (HttpStatusCode.BadRequest, validationEx.Errors.First().ErrorMessage),
-            _ => (HttpStatusCode.InternalServerError, "An error occurred.")
-        };
-
         context.Response.ContentType = "application/json";
-        context.Response.StatusCode = (int)statusCode;
 
-        var result = JsonSerializer.Serialize(new
+        switch (ex)
         {
-            message,
-            statusCode = (int)statusCode
+            case ValidationException validationEx:
+                context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                var errors = validationEx.Errors.Select(e => new
+                {
+                    field = e.PropertyName,
+                    message = e.ErrorMessage,
+                    attemptedValue = e.AttemptedValue?.ToString()
+                });
+                var result = JsonSerializer.Serialize(new
+                {
+                    message = "Validation failed",
+                    statusCode = (int)HttpStatusCode.BadRequest,
+                    errors
+                });
+                await context.Response.WriteAsync(result);
+                return;
+
+            case UnauthorizedException:
+                context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+                break;
+
+            case NotFoundException:
+                context.Response.StatusCode = (int)HttpStatusCode.NotFound;
+                break;
+
+            case ConflictException:
+                context.Response.StatusCode = (int)HttpStatusCode.Conflict;
+                break;
+
+            default:
+                context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+                break;
+        }
+
+        var body = JsonSerializer.Serialize(new
+        {
+            message = ex switch
+            {
+                UnauthorizedException => ex.Message,
+                NotFoundException => ex.Message,
+                ConflictException => ex.Message,
+                _ => "An error occurred."
+            },
+            statusCode = context.Response.StatusCode
         });
 
-        await context.Response.WriteAsync(result);
+        if (ex is not ValidationException)
+            await context.Response.WriteAsync(body);
     }
 }
