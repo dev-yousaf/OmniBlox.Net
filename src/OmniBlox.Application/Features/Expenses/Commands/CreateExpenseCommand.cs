@@ -41,7 +41,7 @@ public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand,
         {
             Reference = request.Reference,
             Amount = request.Amount,
-            ExpenseDate = request.ExpenseDate == default ? DateTime.UtcNow : request.ExpenseDate,
+            ExpenseDate = request.ExpenseDate == default ? DateTime.UtcNow : DateTime.SpecifyKind(request.ExpenseDate, DateTimeKind.Utc),
             Description = request.Description,
             Vendor = request.Vendor,
             Status = "PENDING",

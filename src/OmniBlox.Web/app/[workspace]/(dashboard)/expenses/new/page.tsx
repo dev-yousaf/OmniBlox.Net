@@ -159,7 +159,7 @@ export default function NewExpensePage() {
                   step="0.01"
                   min="0"
                   value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, amount: e.target.value === "" ? 0 : parseFloat(e.target.value) })}
                   placeholder="0.00"
                   required
                 />
