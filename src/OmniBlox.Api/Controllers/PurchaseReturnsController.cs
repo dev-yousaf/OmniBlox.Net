@@ -62,6 +62,27 @@ public class PurchaseReturnsController : ControllerBase
         }, ct));
     }
 
+    [HttpPut("{id:guid}")]
+    public async Task<ActionResult<PurchaseReturnDetailDto>> Update(Guid id, UpdatePurchaseReturnRequest request, CancellationToken ct)
+    {
+        return Ok(await _mediator.Send(new UpdatePurchaseReturnCommand
+        {
+            Id = id,
+            SupplierId = request.SupplierId,
+            WarehouseId = request.WarehouseId,
+            PurchaseOrderId = request.PurchaseOrderId,
+            ReturnDate = request.ReturnDate,
+            Reason = request.Reason,
+            Items = request.Items.Select(i => new CreatePurchaseReturnItem
+            {
+                ProductId = i.ProductId,
+                Quantity = i.Quantity,
+                UnitCost = i.UnitCost,
+                PurchaseOrderItemId = i.PurchaseOrderItemId,
+            }).ToList(),
+        }, ct));
+    }
+
     [HttpPatch("{id:guid}")]
     public async Task<ActionResult<PurchaseReturnDetailDto>> UpdateStatus(Guid id, UpdatePurchaseReturnStatusRequest request, CancellationToken ct)
     {

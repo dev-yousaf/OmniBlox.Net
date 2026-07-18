@@ -64,3 +64,13 @@ public record UpdatePurchaseReturnStatusRequest
 {
     public string Status { get; init; } = "COMPLETED";
 }
+
+public record UpdatePurchaseReturnRequest
+{
+    public Guid WarehouseId { get; init; }
+    public Guid SupplierId { get; init; }
+    public Guid? PurchaseOrderId { get; init; }
+    public string? Reason { get; init; }
+    public DateTime ReturnDate { get; init; }
+    public List<CreatePurchaseReturnItem> Items { get; init; } = [];
+}
