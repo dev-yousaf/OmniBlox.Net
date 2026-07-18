@@ -376,3 +376,7 @@ client/
 server/
 # Zip archives
 *.zip
+# Environment files
+.env
+.env.local
+.env.*.local
