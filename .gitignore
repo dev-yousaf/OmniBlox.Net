@@ -376,7 +376,6 @@ client/
 server/
 # Zip archives
 *.zip
-# Environment files
-.env
+# Environment files (local overrides only — NOT .env.example)
 .env.local
 .env.*.local
