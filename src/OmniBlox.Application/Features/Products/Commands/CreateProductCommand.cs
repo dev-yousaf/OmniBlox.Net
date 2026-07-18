@@ -54,8 +54,9 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
     public async Task<ProductDto> Handle(CreateProductCommand request, CancellationToken ct)
     {
+        var companyId = _currentUser.CompanyId;
         var skuExists = await _context.Products
-            .AnyAsync(p => p.SKU == request.SKU, ct);
+            .AnyAsync(p => p.CompanyId == companyId && p.SKU == request.SKU, ct);
 
         if (skuExists)
             throw new ConflictException($"Product with SKU '{request.SKU}' already exists.");
@@ -107,6 +108,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             Warranty = request.Warranty,
             ManufacturedDate = request.ManufacturedDate,
             ExpiryDate = request.ExpiryDate,
+            CompanyId = companyId,
         };
 
         _context.Products.Add(product);

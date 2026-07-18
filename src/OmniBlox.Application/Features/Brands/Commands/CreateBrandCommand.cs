@@ -21,13 +21,19 @@ public record CreateBrandCommand : IRequest<BrandDto>
 public class CreateBrandCommandHandler : IRequestHandler<CreateBrandCommand, BrandDto>
 {
     private readonly IApplicationDbContext _context;
-    public CreateBrandCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateBrandCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<BrandDto> Handle(CreateBrandCommand request, CancellationToken ct)
     {
+        var companyId = _currentUser.CompanyId;
         var slug = request.Slug?.ToLowerInvariant() ?? request.Name.ToLowerInvariant().Replace(" ", "-");
 
-        var exists = await _context.Brands.AnyAsync(x => x.Slug == slug, ct);
+        var exists = await _context.Brands.AnyAsync(x => x.CompanyId == companyId && x.Slug == slug, ct);
         if (exists) throw new ConflictException($"Brand with slug '{slug}' already exists.");
 
         var entity = new Brand
@@ -37,6 +43,7 @@ public class CreateBrandCommandHandler : IRequestHandler<CreateBrandCommand, Bra
             ImageUrl = request.ImageUrl,
             Description = request.Description,
             Status = request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+            CompanyId = companyId,
         };
 
         _context.Brands.Add(entity);

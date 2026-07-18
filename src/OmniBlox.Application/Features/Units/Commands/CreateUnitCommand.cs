@@ -21,12 +21,18 @@ public record CreateUnitCommand : IRequest<UnitDto>
 public class CreateUnitCommandHandler : IRequestHandler<CreateUnitCommand, UnitDto>
 {
     private readonly IApplicationDbContext _context;
-    public CreateUnitCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateUnitCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<UnitDto> Handle(CreateUnitCommand request, CancellationToken ct)
     {
+        var companyId = _currentUser.CompanyId;
         var slug = request.Slug?.ToLowerInvariant() ?? request.Name.ToLowerInvariant().Replace(" ", "-");
-        var exists = await _context.Units.AnyAsync(x => x.Slug == slug, ct);
+        var exists = await _context.Units.AnyAsync(x => x.CompanyId == companyId && x.Slug == slug, ct);
         if (exists) throw new ConflictException($"Unit with slug '{slug}' already exists.");
 
         var entity = new Domain.Entities.Unit
@@ -36,6 +42,7 @@ public class CreateUnitCommandHandler : IRequestHandler<CreateUnitCommand, UnitD
             Slug = slug,
             Description = request.Description,
             Status = request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+            CompanyId = companyId,
         };
 
         _context.Units.Add(entity);

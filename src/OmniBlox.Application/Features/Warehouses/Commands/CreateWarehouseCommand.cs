@@ -17,17 +17,24 @@ public record CreateWarehouseCommand : IRequest<WarehouseDto>
 public class CreateWarehouseCommandHandler : IRequestHandler<CreateWarehouseCommand, WarehouseDto>
 {
     private readonly IApplicationDbContext _context;
-    public CreateWarehouseCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateWarehouseCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<WarehouseDto> Handle(CreateWarehouseCommand request, CancellationToken ct)
     {
-        var exists = await _context.Warehouses.AnyAsync(x => x.Name == request.Name, ct);
+        var companyId = _currentUser.CompanyId;
+        var exists = await _context.Warehouses.AnyAsync(x => x.CompanyId == companyId && x.Name == request.Name, ct);
         if (exists) throw new ConflictException($"Warehouse with name '{request.Name}' already exists.");
 
         var entity = new Warehouse
         {
             Name = request.Name,
             Location = request.Location,
+            CompanyId = companyId,
         };
 
         _context.Warehouses.Add(entity);

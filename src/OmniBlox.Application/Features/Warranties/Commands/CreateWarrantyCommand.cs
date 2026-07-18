@@ -21,11 +21,17 @@ public record CreateWarrantyCommand : IRequest<WarrantyDto>
 public class CreateWarrantyCommandHandler : IRequestHandler<CreateWarrantyCommand, WarrantyDto>
 {
     private readonly IApplicationDbContext _context;
-    public CreateWarrantyCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateWarrantyCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<WarrantyDto> Handle(CreateWarrantyCommand request, CancellationToken ct)
     {
-        var exists = await _context.Warranties.AnyAsync(x => x.Name == request.Name, ct);
+        var companyId = _currentUser.CompanyId;
+        var exists = await _context.Warranties.AnyAsync(x => x.CompanyId == companyId && x.Name == request.Name, ct);
         if (exists) throw new ConflictException($"Warranty with name '{request.Name}' already exists.");
 
         var entity = new Warranty
@@ -35,6 +41,7 @@ public class CreateWarrantyCommandHandler : IRequestHandler<CreateWarrantyComman
             DurationType = request.DurationType ?? "days",
             Description = request.Description,
             Status = request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+            CompanyId = companyId,
         };
 
         _context.Warranties.Add(entity);

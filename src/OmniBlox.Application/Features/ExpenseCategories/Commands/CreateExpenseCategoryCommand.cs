@@ -15,14 +15,22 @@ public record CreateExpenseCategoryCommand : IRequest<ExpenseCategoryDto>
 public class CreateExpenseCategoryCommandHandler : IRequestHandler<CreateExpenseCategoryCommand, ExpenseCategoryDto>
 {
     private readonly IApplicationDbContext _context;
-    public CreateExpenseCategoryCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateExpenseCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<ExpenseCategoryDto> Handle(CreateExpenseCategoryCommand request, CancellationToken ct)
     {
+        var companyId = _currentUser.CompanyId;
+
         var entity = new ExpenseCategory
         {
             Name = request.Name,
             Description = request.Description,
+            CompanyId = companyId,
         };
 
         _context.ExpenseCategories.Add(entity);
