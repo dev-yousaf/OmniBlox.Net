@@ -1171,6 +1171,7 @@ const ProductForm = forwardRef<HTMLFormElement, ProductFormProps>(
         open={subCategoryDialogOpen}
         onOpenChange={setSubCategoryDialogOpen}
         categoryId={categories.find((c) => c.name === formData.category)?.id || ""}
+        categories={categories}
         onCreated={onSubCategoryCreated}
       />
       <CreateWarrantyDialog

@@ -23,16 +23,22 @@ public record CreateSubCategoryCommand : IRequest<SubCategoryDto>
 public class CreateSubCategoryCommandHandler : IRequestHandler<CreateSubCategoryCommand, SubCategoryDto>
 {
     private readonly IApplicationDbContext _context;
-    public CreateSubCategoryCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateSubCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<SubCategoryDto> Handle(CreateSubCategoryCommand request, CancellationToken ct)
     {
+        var companyId = _currentUser.CompanyId;
         var categoryExists = await _context.ProductCategories.AnyAsync(x => x.Id == request.CategoryId, ct);
         if (!categoryExists) throw new NotFoundException(nameof(ProductCategory), request.CategoryId);
 
         var slug = request.Slug?.ToLowerInvariant() ?? request.Name.ToLowerInvariant().Replace(" ", "-");
 
-        var exists = await _context.SubCategories.AnyAsync(x => x.Slug == slug, ct);
+        var exists = await _context.SubCategories.AnyAsync(x => x.CompanyId == companyId && x.Slug == slug, ct);
         if (exists) throw new ConflictException($"SubCategory with slug '{slug}' already exists.");
 
         var entity = new SubCategory
@@ -44,6 +50,7 @@ public class CreateSubCategoryCommandHandler : IRequestHandler<CreateSubCategory
             ImageUrl = request.ImageUrl,
             Description = request.Description,
             Status = request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+            CompanyId = companyId,
         };
 
         _context.SubCategories.Add(entity);

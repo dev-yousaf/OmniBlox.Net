@@ -20,13 +20,19 @@ public record CreateProductCategoryCommand : IRequest<ProductCategoryDto>
 public class CreateProductCategoryCommandHandler : IRequestHandler<CreateProductCategoryCommand, ProductCategoryDto>
 {
     private readonly IApplicationDbContext _context;
-    public CreateProductCategoryCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICurrentUserService _currentUser;
+    public CreateProductCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    {
+        _context = context;
+        _currentUser = currentUser;
+    }
 
     public async Task<ProductCategoryDto> Handle(CreateProductCategoryCommand request, CancellationToken ct)
     {
+        var companyId = _currentUser.CompanyId;
         var slug = request.Slug?.ToLowerInvariant() ?? request.Name.ToLowerInvariant().Replace(" ", "-");
 
-        var exists = await _context.ProductCategories.AnyAsync(x => x.Slug == slug, ct);
+        var exists = await _context.ProductCategories.AnyAsync(x => x.CompanyId == companyId && x.Slug == slug, ct);
         if (exists) throw new ConflictException($"Category with slug '{slug}' already exists.");
 
         var entity = new ProductCategory
@@ -35,6 +41,7 @@ public class CreateProductCategoryCommandHandler : IRequestHandler<CreateProduct
             Slug = slug,
             Description = request.Description,
             Status = request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+            CompanyId = companyId,
         };
 
         _context.ProductCategories.Add(entity);
