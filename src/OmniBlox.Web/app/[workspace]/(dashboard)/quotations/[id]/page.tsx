@@ -165,12 +165,15 @@ export default function QuotationDetailPage() {
     try {
       setActionLoading(true);
       setShowConvertDialog(false);
-      const result = await convertQuotationToSale(quotation.id, selectedWarehouse);
-      const sale = result.sale;
-      toast.success("Quotation converted to sale successfully!", {
-        description: `Sale ${sale.invoiceNumber} has been created`,
+      const result = await convertQuotationToSale(quotation.id, {
+        warehouseId: selectedWarehouse,
+        saleDate: new Date().toISOString().split("T")[0],
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       });
-      router.push(`/${ws}/sales/${sale.id}`);
+      toast.success("Quotation converted to sale successfully!", {
+        description: `Sale ${result.invoiceNumber} has been created`,
+      });
+      router.push(`/${ws}/sales/${result.saleId}`);
     } catch (err) {
       toast.error(getConvertError(err));
       setActionLoading(false);
@@ -203,7 +206,7 @@ export default function QuotationDetailPage() {
     try {
       await deleteQuotation(quotation.id);
       toast.success("Quotation deleted successfully");
-      router.push(`/${ws}/${ws}/quotations`);
+      router.push(`/${ws}/quotations`);
     } catch (err) {
       toast.error(getErrorMessage(err, "Failed to delete quotation"));
     } finally {
@@ -409,9 +412,9 @@ export default function QuotationDetailPage() {
                               <Package className="h-3.5 w-3.5 text-muted-foreground" />
                             </div>
                             <div>
-                              <span className="font-medium text-foreground">{item.product?.name || (item as unknown as Record<string, string>).productName || ""}</span>
-                              {item.product?.sku && (
-                                <span className="text-xs text-muted-foreground ml-1">SKU: {item.product.sku}</span>
+                              <span className="font-medium text-foreground">{item.productName}</span>
+                              {item.productSku && (
+                                <span className="text-xs text-muted-foreground ml-1">SKU: {item.productSku}</span>
                               )}
                             </div>
                           </div>
@@ -436,18 +439,7 @@ export default function QuotationDetailPage() {
                   {formatCurrency.format(items.reduce((sum: number, i: QuotationItem) => sum + Number(i.unitPrice) * Number(i.quantity), 0))}
                 </span>
               </div>
-              {Number(quotation.taxAmount) > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Tax</span>
-                  <span className="font-medium tabular-nums">{formatCurrency.format(Number(quotation.taxAmount))}</span>
-                </div>
-              )}
-              {Number(quotation.discount) > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Discount</span>
-                  <span className="font-medium tabular-nums text-destructive">-{formatCurrency.format(Number(quotation.discount))}</span>
-                </div>
-              )}
+              
               <div className="flex justify-between border-t pt-2">
                 <span className="font-semibold text-foreground">Total</span>
                 <span className="text-xl font-bold tabular-nums">{formatCurrency.format(Number(quotation.totalAmount))}</span>

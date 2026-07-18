@@ -102,6 +102,27 @@ public class QuotationsController : ControllerBase
             ShippingAddress = request.ShippingAddress,
         }, ct));
     }
+
+    [HttpPatch("{id:guid}/status")]
+    public async Task<ActionResult<QuotationDetailDto>> UpdateStatus(Guid id, [FromBody] UpdateQuotationStatusRequest request, CancellationToken ct)
+    {
+        return Ok(await _mediator.Send(new UpdateQuotationStatusCommand
+        {
+            Id = id,
+            Status = request.Status,
+        }, ct));
+    }
+
+    [HttpGet("{id:guid}/stock-levels")]
+    public async Task<ActionResult<QuotationStockLevelResponse>> GetStockLevels(Guid id, CancellationToken ct)
+    {
+        return Ok(await _mediator.Send(new GetQuotationStockLevelsQuery { QuotationId = id }, ct));
+    }
+}
+
+public record UpdateQuotationStatusRequest
+{
+    public string Status { get; init; } = string.Empty;
 }
 
 public record ConvertQuotationRequest

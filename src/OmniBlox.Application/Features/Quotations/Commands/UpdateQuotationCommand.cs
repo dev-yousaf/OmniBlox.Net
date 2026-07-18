@@ -44,8 +44,8 @@ public class UpdateQuotationCommandHandler : IRequestHandler<UpdateQuotationComm
             throw new NotFoundException(nameof(Customer), request.CustomerId);
 
         quotation.CustomerId = request.CustomerId;
-        quotation.QuoteDate = request.QuoteDate;
-        quotation.ExpiryDate = request.ExpiryDate;
+        quotation.QuoteDate = DateTime.SpecifyKind(request.QuoteDate, DateTimeKind.Utc);
+        quotation.ExpiryDate = request.ExpiryDate.HasValue ? DateTime.SpecifyKind(request.ExpiryDate.Value, DateTimeKind.Utc) : null;
         quotation.Status = request.Status;
         quotation.Notes = request.Notes;
 

@@ -1,5 +1,4 @@
-import type { Quotation } from "@/hooks/use-quotations-api"
-export type { Quotation }
+export type Quotation = import("@/hooks/use-quotations-api").QuotationDetail
 
 export type QuotationStatus = "DRAFT" | "PENDING" | "COMPLETED" | "CANCELLED"
 

@@ -73,8 +73,8 @@ public class ConvertQuotationToSaleCommandHandler : IRequestHandler<ConvertQuota
         {
             InvoiceNumber = invoiceNumber,
             CustomerId = quotation.CustomerId,
-            SaleDate = request.SaleDate,
-            DueDate = request.DueDate,
+            SaleDate = DateTime.SpecifyKind(request.SaleDate, DateTimeKind.Utc),
+            DueDate = DateTime.SpecifyKind(request.DueDate, DateTimeKind.Utc),
             Status = request.Status,
             PaymentStatus = request.PaymentStatus,
             PaymentMethod = request.PaymentMethod,

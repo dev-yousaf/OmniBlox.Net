@@ -71,8 +71,11 @@ export interface QuotationSaleResult {
   message: string;
 }
 
+export type QuotationWithDetails = QuotationDetail;
+export type Quotation = QuotationDetail;
+
 export function useQuotationsApi() {
-  const { get, post, put, delete: del } = useAuthenticatedApi();
+  const { get, post, put, patch, delete: del } = useAuthenticatedApi();
 
   const list = useCallback(async (filters: Record<string, any> = {}): Promise<QuotationsListResponse> => {
     const params = new URLSearchParams();
@@ -106,5 +109,58 @@ export function useQuotationsApi() {
     return post(`/quotations/${id}/convert-to-sale`, data) as Promise<QuotationSaleResult>;
   }, [post]);
 
-  return useMemo(() => ({ list, getById, create, update, remove, convertToSale }), [list, getById, create, update, remove, convertToSale]);
+  const updateQuotationStatus = useCallback(async (id: string, data: { status: string }): Promise<QuotationDetail> => {
+    return patch(`/quotations/${id}/status`, data) as Promise<QuotationDetail>;
+  }, [patch]);
+
+  interface WarehouseStockLevel {
+    warehouseId: string;
+    warehouseName: string;
+    location?: string;
+    canFulfill: boolean;
+    products: Array<{
+      productId: string;
+      productName: string;
+      sku?: string;
+      required: number;
+      available: number;
+      sufficient: boolean;
+    }>;
+  }
+
+  const getQuotationStockLevels = useCallback(async (id: string): Promise<{ warehouses: WarehouseStockLevel[] }> => {
+    return get(`/quotations/${id}/stock-levels`) as Promise<{ warehouses: WarehouseStockLevel[] }>;
+  }, [get]);
+
+  // Aliases for page compatibility
+  const getQuotations = useCallback(async (): Promise<QuotationWithDetails[]> => {
+    const resp = await list({ page: 1, limit: 10000 });
+    return resp.quotations.map((q: QuotationSummary) => ({
+      ...q,
+      customer: { id: q.customerId, name: q.customerName, email: "", phone: "" },
+      items: [],
+    })) as unknown as QuotationWithDetails[];
+  }, [list]);
+
+  const getQuotation = useCallback(async (id: string): Promise<QuotationWithDetails> => {
+    return getById(id) as Promise<QuotationWithDetails>;
+  }, [getById]);
+
+  const deleteQuotation = useCallback(async (id: string): Promise<void> => {
+    await remove(id);
+  }, [remove]);
+
+  const createQuotation = useCallback(async (data: CreateQuotationPayload): Promise<QuotationDetail> => {
+    return create(data);
+  }, [create]);
+
+  return useMemo(() => ({
+    list, getById, create, update, remove, convertToSale,
+    updateQuotationStatus, getQuotationStockLevels,
+    getQuotations, getQuotation, deleteQuotation,
+    createQuotation,
+  }), [list, getById, create, update, remove, convertToSale,
+      updateQuotationStatus, getQuotationStockLevels,
+      getQuotations, getQuotation, deleteQuotation,
+      createQuotation]);
 }

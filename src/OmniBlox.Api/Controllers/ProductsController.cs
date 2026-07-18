@@ -6,6 +6,8 @@ using OmniBlox.Application.Features.Brands.Queries;
 using OmniBlox.Application.Features.Products.Commands;
 using OmniBlox.Application.Features.Products.DTOs;
 using OmniBlox.Application.Features.Products.Queries;
+using OmniBlox.Application.Features.Quotations.DTOs;
+using OmniBlox.Application.Features.Quotations.Queries;
 
 namespace OmniBlox.Api.Controllers;
 
@@ -183,6 +185,12 @@ public class ProductsController : ControllerBase
     public async Task<ActionResult<AdjustStockResponse>> AdjustStock([FromBody] AdjustStockCommand command, CancellationToken ct)
     {
         return Ok(await _mediator.Send(command, ct));
+    }
+
+    [HttpGet("{id:guid}/quotations")]
+    public async Task<ActionResult<List<QuotationSummaryDto>>> GetQuotations(Guid id, CancellationToken ct)
+    {
+        return Ok(await _mediator.Send(new GetProductQuotationsQuery { ProductId = id }, ct));
     }
 }
 
