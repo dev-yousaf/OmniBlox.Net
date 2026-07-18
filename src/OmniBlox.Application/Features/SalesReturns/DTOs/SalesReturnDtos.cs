@@ -103,3 +103,12 @@ public record UpdateSalesReturnStatusRequest
 {
     public string Status { get; init; } = string.Empty;
 }
+
+public record UpdateSalesReturnRequest
+{
+    public Guid WarehouseId { get; init; }
+    public Guid? SaleId { get; init; }
+    public string? Reason { get; init; }
+    public DateTime ReturnDate { get; init; }
+    public List<CreateSalesReturnItem> Items { get; init; } = new();
+}

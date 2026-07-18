@@ -60,6 +60,26 @@ public class SalesReturnsController : ControllerBase
         }, ct));
     }
 
+    [HttpPut("{id:guid}")]
+    public async Task<ActionResult<SalesReturnDetailDto>> Update(Guid id, UpdateSalesReturnRequest request, CancellationToken ct)
+    {
+        return Ok(await _mediator.Send(new UpdateSalesReturnCommand
+        {
+            Id = id,
+            WarehouseId = request.WarehouseId,
+            SaleId = request.SaleId,
+            ReturnDate = request.ReturnDate,
+            Reason = request.Reason,
+            Items = request.Items.Select(i => new CreateSalesReturnItem
+            {
+                ProductId = i.ProductId,
+                Quantity = i.Quantity,
+                UnitPrice = i.UnitPrice,
+                SaleItemId = i.SaleItemId,
+            }).ToList(),
+        }, ct));
+    }
+
     [HttpPatch("{id:guid}")]
     public async Task<ActionResult<SalesReturnDetailDto>> UpdateStatus(Guid id, UpdateSalesReturnStatusRequest request, CancellationToken ct)
     {
