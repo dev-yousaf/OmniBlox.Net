@@ -81,19 +81,28 @@ export default function UserDetailPage() {
         setLoading(true);
         const userData = await getUser(params.id as string);
         setUser(userData);
-        const [productData, auditData] = await Promise.all([
-          getUserProducts(params.id as string),
-          getUserAuditLogs(params.id as string, 1, 10),
-        ]);
-        setProducts(productData);
-        setAuditLogs(auditData.logs);
-        setAuditPages(auditData.pages);
       } catch (error) {
         toast({ title: "Error", description: "Failed to load user details.", variant: "destructive" });
         router.push(`/${ws}/people/users`);
-      } finally {
-        setLoading(false);
+        return;
       }
+
+      try {
+        const productData = await getUserProducts(params.id as string);
+        setProducts(productData);
+      } catch {
+        setProducts([]);
+      }
+
+      try {
+        const auditData = await getUserAuditLogs(params.id as string, 1, 10);
+        setAuditLogs(auditData.logs);
+        setAuditPages(auditData.pages);
+      } catch {
+        setAuditLogs([]);
+      }
+
+      setLoading(false);
     };
     loadUser();
   }, [params.id, getUser, toast, router, getUserProducts, getUserAuditLogs]);
