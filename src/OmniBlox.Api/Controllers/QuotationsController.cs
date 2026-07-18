@@ -67,7 +67,7 @@ public class QuotationsController : ControllerBase
             CustomerId = request.CustomerId,
             QuoteDate = request.QuoteDate,
             ExpiryDate = request.ExpiryDate,
-            Status = request.Status,
+            Status = request.Status!,
             Notes = request.Notes,
             Items = request.Items.Select(i => new CreateQuotationItemCommand
             {

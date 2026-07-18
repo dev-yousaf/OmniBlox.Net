@@ -85,7 +85,7 @@ public class SalesController : ControllerBase
             WarehouseId = request.WarehouseId,
             SaleDate = request.SaleDate,
             DueDate = request.DueDate,
-            Status = request.Status,
+            Status = request.Status!,
             PaymentStatus = request.PaymentStatus,
             PaymentMethod = request.PaymentMethod,
             TaxRate = request.TaxRate,
