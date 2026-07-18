@@ -33,6 +33,9 @@ public record UpdateProductCommand : IRequest<ProductDto>
     public string? Warranty { get; init; }
     public DateTime? ManufacturedDate { get; init; }
     public DateTime? ExpiryDate { get; init; }
+    public bool? HasVariants { get; init; }
+    public string? Attributes { get; init; }
+    public Guid? ParentId { get; init; }
 }
 
 public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand, ProductDto>
@@ -84,6 +87,9 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         if (request.Warranty is not null) product.Warranty = request.Warranty;
         if (request.ManufacturedDate is not null) product.ManufacturedDate = DateTime.SpecifyKind(request.ManufacturedDate.Value, DateTimeKind.Utc);
         if (request.ExpiryDate is not null) product.ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate.Value, DateTimeKind.Utc);
+        if (request.HasVariants.HasValue) product.HasVariants = request.HasVariants.Value;
+        if (request.Attributes is not null) product.Attributes = request.Attributes;
+        if (request.ParentId.HasValue) product.ParentId = request.ParentId;
 
         product.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync(ct);

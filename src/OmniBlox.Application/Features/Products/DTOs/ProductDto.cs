@@ -28,6 +28,9 @@ public record ProductDto
     public string? Warranty { get; init; }
     public DateTime? ManufacturedDate { get; init; }
     public DateTime? ExpiryDate { get; init; }
+    public bool HasVariants { get; init; }
+    public string? Attributes { get; init; }
+    public Guid? ParentId { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
 
@@ -55,6 +58,9 @@ public record ProductDto
         ItemCode = product.ItemCode,
         Manufacturer = product.Manufacturer,
         Warranty = product.Warranty,
+        HasVariants = product.HasVariants,
+        Attributes = product.Attributes,
+        ParentId = product.ParentId,
         ManufacturedDate = product.ManufacturedDate,
         ExpiryDate = product.ExpiryDate,
         CreatedAt = product.CreatedAt,

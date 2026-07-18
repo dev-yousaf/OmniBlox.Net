@@ -33,6 +33,9 @@ public record CreateProductCommand : IRequest<ProductDto>
     public string? Warranty { get; init; }
     public DateTime? ManufacturedDate { get; init; }
     public DateTime? ExpiryDate { get; init; }
+    public bool HasVariants { get; init; }
+    public string? Attributes { get; init; }
+    public Guid? ParentId { get; init; }
     public Guid? WarehouseId { get; init; }
 }
 
@@ -108,6 +111,9 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             Warranty = request.Warranty,
             ManufacturedDate = request.ManufacturedDate is not null ? DateTime.SpecifyKind(request.ManufacturedDate.Value, DateTimeKind.Utc) : null,
             ExpiryDate = request.ExpiryDate is not null ? DateTime.SpecifyKind(request.ExpiryDate.Value, DateTimeKind.Utc) : null,
+            HasVariants = request.HasVariants,
+            Attributes = request.Attributes,
+            ParentId = request.ParentId,
             CompanyId = companyId,
         };
 

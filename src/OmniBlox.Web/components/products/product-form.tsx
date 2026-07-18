@@ -1045,7 +1045,7 @@ const ProductForm = forwardRef<HTMLFormElement, ProductFormProps>(
         )}
 
         {/* Variants */}
-        {!isEdit && formData.hasVariants && (
+        {formData.hasVariants && (
           <CardSection icon={<List className="h-4 w-4" />} title="Variants">
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-2">
