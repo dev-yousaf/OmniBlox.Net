@@ -1,9 +1,9 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace OmniBlox.Infrastructure.Persistence.Migrations
+namespace OmniBlox.Infrastructure.Migrations
 {
     /// <inheritdoc />
     public partial class AddCreatedByIdAndAuditLogs : Migration

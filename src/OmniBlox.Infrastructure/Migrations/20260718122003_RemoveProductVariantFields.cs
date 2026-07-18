@@ -1,10 +1,10 @@
-﻿using System;
+using System;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace OmniBlox.Infrastructure.Persistence.Migrations
+namespace OmniBlox.Infrastructure.Migrations
 {
     /// <inheritdoc />
     public partial class RemoveProductVariantFields : Migration
