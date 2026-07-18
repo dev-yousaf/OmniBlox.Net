@@ -27,69 +27,48 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Dashb
         var now = DateTime.UtcNow;
         var (fromDate, prevFromDate) = GetDateRange(request.Period, now);
 
-        var salesTask = _context.Sales
+        var sales = await _context.Sales
             .Where(s => s.CompanyId == companyId && s.SaleDate >= fromDate)
             .ToListAsync(ct);
-        var prevSalesTask = _context.Sales
+        var prevSales = await _context.Sales
             .Where(s => s.CompanyId == companyId && s.SaleDate >= prevFromDate && s.SaleDate < fromDate)
             .ToListAsync(ct);
-        var purchasesTask = _context.PurchaseOrders
+        var purchases = await _context.PurchaseOrders
             .Where(p => p.CompanyId == companyId && p.OrderDate >= fromDate)
             .ToListAsync(ct);
-        var prevPurchasesTask = _context.PurchaseOrders
+        var prevPurchases = await _context.PurchaseOrders
             .Where(p => p.CompanyId == companyId && p.OrderDate >= prevFromDate && p.OrderDate < fromDate)
             .ToListAsync(ct);
-        var salesReturnsTask = _context.SalesReturns
+        var salesReturns = await _context.SalesReturns
             .Where(sr => sr.CompanyId == companyId && sr.ReturnDate >= fromDate)
             .ToListAsync(ct);
-        var prevSalesReturnsTask = _context.SalesReturns
+        var prevSalesReturns = await _context.SalesReturns
             .Where(sr => sr.CompanyId == companyId && sr.ReturnDate >= prevFromDate && sr.ReturnDate < fromDate)
             .ToListAsync(ct);
-        var purchaseReturnsTask = _context.PurchaseReturns
+        var purchaseReturns = await _context.PurchaseReturns
             .Where(pr => pr.CompanyId == companyId && pr.ReturnDate >= fromDate)
             .ToListAsync(ct);
-        var prevPurchaseReturnsTask = _context.PurchaseReturns
+        var prevPurchaseReturns = await _context.PurchaseReturns
             .Where(pr => pr.CompanyId == companyId && pr.ReturnDate >= prevFromDate && pr.ReturnDate < fromDate)
             .ToListAsync(ct);
-        var expensesTask = _context.Expenses
+        var expenses = await _context.Expenses
             .Where(e => e.CompanyId == companyId && e.ExpenseDate >= fromDate)
             .ToListAsync(ct);
-        var prevExpensesTask = _context.Expenses
+        var prevExpenses = await _context.Expenses
             .Where(e => e.CompanyId == companyId && e.ExpenseDate >= prevFromDate && e.ExpenseDate < fromDate)
             .ToListAsync(ct);
-        var productsTask = _context.Products
+        var products = await _context.Products
             .Where(p => p.CompanyId == companyId)
             .ToListAsync(ct);
-        var suppliersCountTask = _context.Suppliers.CountAsync(s => s.CompanyId == companyId, ct);
-        var customersCountTask = _context.Customers.CountAsync(c => c.CompanyId == companyId, ct);
-        var allSalesTask = _context.Sales
+        var suppliersCount = await _context.Suppliers.CountAsync(s => s.CompanyId == companyId, ct);
+        var customersCount = await _context.Customers.CountAsync(c => c.CompanyId == companyId, ct);
+        var allSales = await _context.Sales
             .Where(s => s.CompanyId == companyId)
             .Include(s => s.Customer)
             .Include(s => s.Items).ThenInclude(i => i.Product)
             .OrderByDescending(s => s.SaleDate)
             .Take(10)
             .ToListAsync(ct);
-
-        await Task.WhenAll(
-            salesTask, prevSalesTask, purchasesTask, prevPurchasesTask,
-            salesReturnsTask, prevSalesReturnsTask, purchaseReturnsTask, prevPurchaseReturnsTask,
-            expensesTask, prevExpensesTask, productsTask,
-            suppliersCountTask, customersCountTask, allSalesTask);
-
-        var sales = salesTask.Result;
-        var prevSales = prevSalesTask.Result;
-        var purchases = purchasesTask.Result;
-        var prevPurchases = prevPurchasesTask.Result;
-        var salesReturns = salesReturnsTask.Result;
-        var prevSalesReturns = prevSalesReturnsTask.Result;
-        var purchaseReturns = purchaseReturnsTask.Result;
-        var prevPurchaseReturns = prevPurchaseReturnsTask.Result;
-        var expenses = expensesTask.Result;
-        var prevExpenses = prevExpensesTask.Result;
-        var products = productsTask.Result;
-        var suppliersCount = suppliersCountTask.Result;
-        var customersCount = customersCountTask.Result;
-        var allSales = allSalesTask.Result;
 
         var totalSales = sales.Sum(s => s.TotalAmount);
         var prevTotalSales = prevSales.Sum(s => s.TotalAmount);
