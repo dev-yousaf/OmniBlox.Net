@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Api.Controllers.Requests;
 using OmniBlox.Application.Features.Inventory.Commands;
 using OmniBlox.Application.Features.Inventory.DTOs;
 using OmniBlox.Application.Features.Inventory.Queries;
@@ -144,10 +145,4 @@ public class InventoryController : ControllerBase
     {
         return Ok(await _mediator.Send(new GetWarehouseInventoryQuery { WarehouseId = warehouseId }, ct));
     }
-}
-
-public record UpdateInventoryRequest
-{
-    public int Quantity { get; init; }
-    public string? Notes { get; init; }
 }

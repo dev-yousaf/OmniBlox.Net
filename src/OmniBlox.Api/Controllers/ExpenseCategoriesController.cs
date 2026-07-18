@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Api.Controllers.Requests;
 using OmniBlox.Application.Features.ExpenseCategories.Commands;
 using OmniBlox.Application.Features.ExpenseCategories.Queries;
 using OmniBlox.Application.Features.Expenses.DTOs;

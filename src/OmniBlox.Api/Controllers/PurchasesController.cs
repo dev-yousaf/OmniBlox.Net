@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Api.Controllers.Requests;
 using OmniBlox.Application.Features.Purchases.Commands;
 using OmniBlox.Application.Features.Purchases.DTOs;
 using OmniBlox.Application.Features.Purchases.Queries;
@@ -120,9 +121,4 @@ public class PurchasesController : ControllerBase
     {
         return Ok(await _mediator.Send(new MarkPurchasePaidCommand { Id = id }, ct));
     }
-}
-
-public record ReceivePurchaseRequest
-{
-    public Guid WarehouseId { get; init; }
 }

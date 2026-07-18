@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Api.Controllers.Requests;
 using OmniBlox.Application.Features.Brands.DTOs;
 using OmniBlox.Application.Features.Brands.Queries;
 using OmniBlox.Application.Features.Products.Commands;
@@ -192,10 +193,4 @@ public class ProductsController : ControllerBase
     {
         return Ok(await _mediator.Send(new GetProductQuotationsQuery { ProductId = id }, ct));
     }
-}
-
-public record UpdateStockRequest
-{
-    public int Quantity { get; init; }
-    public string Operation { get; init; } = "add";
 }

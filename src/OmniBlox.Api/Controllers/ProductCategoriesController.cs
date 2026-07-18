@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Api.Controllers.Requests;
 using OmniBlox.Application.Features.ProductCategories.Commands;
 using OmniBlox.Application.Features.ProductCategories.DTOs;
 using OmniBlox.Application.Features.ProductCategories.Queries;
@@ -66,9 +67,4 @@ public class ProductCategoriesController : ControllerBase
     {
         return Ok(await _mediator.Send(new BulkDeleteProductCategoriesCommand { Ids = request.Ids }, ct));
     }
-}
-
-public record BulkDeleteRequest
-{
-    public List<Guid> Ids { get; init; } = [];
 }

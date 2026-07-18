@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Api.Controllers.Requests;
 using OmniBlox.Application.Features.Auth.Commands;
 using OmniBlox.Application.Features.Auth.DTOs;
 using OmniBlox.Application.Features.Auth.Queries;
@@ -140,19 +141,4 @@ public class AuthController : ControllerBase
             MaxAge = TimeSpan.FromDays(7),
         });
     }
-}
-
-public record UpdateProfileRequest
-{
-    public string? Name { get; init; }
-    public string? CompanyName { get; init; }
-    public string? Industry { get; init; }
-    public string? OtherIndustry { get; init; }
-    public string? Country { get; init; }
-}
-
-public record ChangePasswordRequest
-{
-    public string CurrentPassword { get; init; } = string.Empty;
-    public string NewPassword { get; init; } = string.Empty;
 }

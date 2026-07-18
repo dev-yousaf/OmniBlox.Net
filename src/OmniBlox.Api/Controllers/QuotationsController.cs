@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Api.Controllers.Requests;
 using OmniBlox.Application.Features.Quotations.Commands;
 using OmniBlox.Application.Features.Quotations.DTOs;
 using OmniBlox.Application.Features.Quotations.Queries;
@@ -118,21 +119,4 @@ public class QuotationsController : ControllerBase
     {
         return Ok(await _mediator.Send(new GetQuotationStockLevelsQuery { QuotationId = id }, ct));
     }
-}
-
-public record UpdateQuotationStatusRequest
-{
-    public string Status { get; init; } = string.Empty;
-}
-
-public record ConvertQuotationRequest
-{
-    public Guid WarehouseId { get; init; }
-    public DateTime SaleDate { get; init; }
-    public DateTime DueDate { get; init; }
-    public string? Status { get; init; }
-    public string? PaymentStatus { get; init; }
-    public string? PaymentMethod { get; init; }
-    public string? Notes { get; init; }
-    public string? ShippingAddress { get; init; }
 }
