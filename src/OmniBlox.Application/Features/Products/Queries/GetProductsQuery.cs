@@ -50,6 +50,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Product
             .OrderByDescending(p => p.CreatedAt)
             .Skip((request.Page - 1) * request.Limit)
             .Take(request.Limit)
+            .Include(p => p.CreatedByUser)
             .ToListAsync(ct);
 
         // Compute live stock from warehouse_stock to eliminate drift

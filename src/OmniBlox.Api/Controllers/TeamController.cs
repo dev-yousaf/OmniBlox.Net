@@ -1,6 +1,10 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OmniBlox.Application.Features.AuditLogs.DTOs;
+using OmniBlox.Application.Features.AuditLogs.Queries;
+using OmniBlox.Application.Features.Products.DTOs;
+using OmniBlox.Application.Features.Products.Queries;
 using OmniBlox.Application.Features.Team.Commands;
 using OmniBlox.Application.Features.Team.DTOs;
 using OmniBlox.Application.Features.Team.Queries;
@@ -81,6 +85,25 @@ public class TeamController : ControllerBase
             NewPassword = request.NewPassword,
         }, ct);
         return Ok(new { message = "Password changed." });
+    }
+
+    [HttpGet("{id:guid}/products")]
+    public async Task<ActionResult<List<ProductDto>>> GetUserProducts(Guid id, CancellationToken ct)
+    {
+        return Ok(await _mediator.Send(new GetUserProductsQuery { UserId = id }, ct));
+    }
+
+    [HttpGet("{id:guid}/audit-logs")]
+    public async Task<ActionResult<AuditLogListResponse>> GetUserAuditLogs(
+        Guid id, CancellationToken ct,
+        [FromQuery] int page = 1, [FromQuery] int limit = 20)
+    {
+        return Ok(await _mediator.Send(new GetAuditLogsQuery
+        {
+            UserId = id,
+            Page = page,
+            Limit = limit,
+        }, ct));
     }
 
     [HttpDelete("{id:guid}")]

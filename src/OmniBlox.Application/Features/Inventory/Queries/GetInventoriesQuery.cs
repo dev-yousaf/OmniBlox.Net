@@ -32,10 +32,13 @@ public class GetInventoriesQueryHandler : IRequestHandler<GetInventoriesQuery, I
             .ToListAsync(ct);
         var defaultWarehouse = warehouses.FirstOrDefault();
 
-        // Inventory records (per-warehouse)
+        var companyId = _currentUser.CompanyId;
+
+        // Inventory records (per-warehouse) — scoped to current company
         var inventoryQuery = _context.Inventories
             .Include(i => i.Product)
             .Include(i => i.Warehouse)
+            .Where(i => i.Product.CompanyId == companyId)
             .AsQueryable();
 
         if (request.WarehouseId.HasValue)
@@ -63,12 +66,13 @@ public class GetInventoriesQueryHandler : IRequestHandler<GetInventoriesQuery, I
         if (!request.WarehouseId.HasValue && defaultWarehouse is not null)
         {
             var productIdsWithInventory = await _context.Inventories
+                .Where(i => i.Product.CompanyId == companyId)
                 .Select(i => i.ProductId)
                 .Distinct()
                 .ToListAsync(ct);
 
             var productsWithoutInventoryQuery = _context.Products
-                .Where(p => !productIdsWithInventory.Contains(p.Id))
+                .Where(p => p.CompanyId == companyId && !productIdsWithInventory.Contains(p.Id))
                 .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(request.Search))

@@ -3,10 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { WorkspaceLink as Link } from "@/components/workspace-link";
 import {
-  MoreHorizontal,
   Edit,
   Trash2,
-  Eye,
   Download,
   FileSpreadsheet,
   FileText,
@@ -16,6 +14,7 @@ import {
   Loader2,
   ImageIcon,
   CirclePlus,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,14 +42,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -452,45 +443,39 @@ export default function ProductsPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
+                      <div className="flex items-center justify-end gap-1">
+                        <Link href={`/products/${product.id}`}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="View">
+                            <Eye className="h-4 w-4" />
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem asChild>
-                            <Link href={`/products/${product.id}`}><Eye className="mr-2 h-4 w-4" /> View Details</Link>
-                          </DropdownMenuItem>
-                          {canManageProducts && (
-                            <>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/products/${product.id}/edit`}><Edit className="mr-2 h-4 w-4" /> Edit</Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <DropdownMenuItem className="text-destructive" onSelect={(e) => e.preventDefault()}>
-                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                  </DropdownMenuItem>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Delete product?</AlertDialogTitle>
-                                    <AlertDialogDescription>This permanently deletes "{product.name}".</AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => handleDelete(product.id)} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        </Link>
+                        {canManageProducts && (
+                          <>
+                            <Link href={`/products/${product.id}/edit`}>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit">
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Delete">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete product?</AlertDialogTitle>
+                                  <AlertDialogDescription>This permanently deletes "{product.name}".</AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleDelete(product.id)} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

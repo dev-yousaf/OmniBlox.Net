@@ -52,6 +52,36 @@ interface TeamFilters {
   role?: string;
 }
 
+export interface UserProduct {
+  id: string;
+  name: string;
+  sku: string;
+  category: string;
+  salePrice: number;
+  stock: number;
+  createdAt: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: string;
+  action: string;
+  entity: string;
+  entityId?: string;
+  details?: string;
+  createdAt: string;
+}
+
+export interface AuditLogListResponse {
+  logs: AuditLogEntry[];
+  total: number;
+  pages: number;
+  page: number;
+  limit: number;
+}
+
 export function useTeamApi() {
   const { post, get, put, delete: del } = useAuthenticatedApi();
 
@@ -146,6 +176,20 @@ export function useTeamApi() {
     [post]
   );
 
+  const getUserProducts = useCallback(
+    async (id: string): Promise<UserProduct[]> => {
+      return get(`/team/${id}/products`) as Promise<UserProduct[]>;
+    },
+    [get]
+  );
+
+  const getUserAuditLogs = useCallback(
+    async (id: string, page = 1, limit = 20): Promise<AuditLogListResponse> => {
+      return get(`/team/${id}/audit-logs?page=${page}&limit=${limit}`) as Promise<AuditLogListResponse>;
+    },
+    [get]
+  );
+
   return {
     createUser,
     getUsers,
@@ -156,5 +200,7 @@ export function useTeamApi() {
     deleteUser,
     getTeamStats,
     acceptInvitation,
+    getUserProducts,
+    getUserAuditLogs,
   };
 }

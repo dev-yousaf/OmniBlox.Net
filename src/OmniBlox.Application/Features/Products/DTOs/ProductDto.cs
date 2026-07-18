@@ -2,6 +2,13 @@ using OmniBlox.Domain.Entities;
 
 namespace OmniBlox.Application.Features.Products.DTOs;
 
+public record CreatedByInfo
+{
+    public string Id { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public string? Image { get; init; }
+}
+
 public record ProductDto
 {
     public Guid Id { get; init; }
@@ -28,11 +35,9 @@ public record ProductDto
     public string? Warranty { get; init; }
     public DateTime? ManufacturedDate { get; init; }
     public DateTime? ExpiryDate { get; init; }
-    public bool HasVariants { get; init; }
-    public string? Attributes { get; init; }
-    public Guid? ParentId { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
+    public CreatedByInfo? CreatedBy { get; init; }
 
     public static ProductDto FromEntity(Product product, Guid? warehouseId = null) => new()
     {
@@ -58,13 +63,13 @@ public record ProductDto
         ItemCode = product.ItemCode,
         Manufacturer = product.Manufacturer,
         Warranty = product.Warranty,
-        HasVariants = product.HasVariants,
-        Attributes = product.Attributes,
-        ParentId = product.ParentId,
         ManufacturedDate = product.ManufacturedDate,
         ExpiryDate = product.ExpiryDate,
         CreatedAt = product.CreatedAt,
         UpdatedAt = product.UpdatedAt,
+        CreatedBy = product.CreatedByUser is not null
+            ? new CreatedByInfo { Id = product.CreatedByUser.Id.ToString(), Name = product.CreatedByUser.Name }
+            : null,
     };
 }
 

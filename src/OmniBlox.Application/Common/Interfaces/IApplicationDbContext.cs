@@ -13,7 +13,6 @@ public interface IApplicationDbContext
     DbSet<Brand> Brands { get; }
     DbSet<Unit> Units { get; }
     DbSet<Warranty> Warranties { get; }
-    DbSet<VariantAttribute> VariantAttributes { get; }
     DbSet<Warehouse> Warehouses { get; }
     DbSet<Inventory> Inventories { get; }
     DbSet<StockAdjustment> StockAdjustments { get; }
@@ -37,5 +36,6 @@ public interface IApplicationDbContext
     DbSet<ExpenseCategory> ExpenseCategories { get; }
     DbSet<Expense> Expenses { get; }
     DbSet<ExpenseAttachment> ExpenseAttachments { get; }
+    DbSet<AuditLog> AuditLogs { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

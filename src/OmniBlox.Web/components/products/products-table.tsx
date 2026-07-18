@@ -27,19 +27,21 @@ import { Badge } from "@/components/ui/badge";
 import {
   ArrowUpDown,
   Search,
-  MoreHorizontal,
   Edit,
   Trash2,
   Eye,
 } from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import type { Product } from "@/lib/types";
 
 interface ProductsTableProps {
@@ -202,34 +204,21 @@ const columns: ColumnDef<Product>[] = [
       const product = row.original;
 
       return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-8 w-8 p-0">
-              <span className="sr-only">Open menu</span>
-              <MoreHorizontal className="h-4 w-4" />
+        <div className="flex items-center gap-1">
+          <Link href={`/products/${product.id}`}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="View">
+              <Eye className="h-4 w-4" />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <Link href={`/products/${product.id}`}>
-              <DropdownMenuItem className="cursor-pointer">
-                <Eye className="mr-2 h-4 w-4" />
-                View
-              </DropdownMenuItem>
-            </Link>
-            <Link href={`/products/${product.id}/edit`}>
-              <DropdownMenuItem className="cursor-pointer">
-                <Edit className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-            </Link>
-            <DropdownMenuItem className="cursor-pointer text-destructive">
-              <Trash2 className="mr-2 h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </Link>
+          <Link href={`/products/${product.id}/edit`}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit">
+              <Edit className="h-4 w-4" />
+            </Button>
+          </Link>
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Delete">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       );
     },
   },

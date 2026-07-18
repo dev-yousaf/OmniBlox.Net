@@ -26,7 +26,6 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<Brand> Brands => Set<Brand>();
     public DbSet<Unit> Units => Set<Unit>();
     public DbSet<Warranty> Warranties => Set<Warranty>();
-    public DbSet<VariantAttribute> VariantAttributes => Set<VariantAttribute>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
     public DbSet<Inventory> Inventories => Set<Inventory>();
     public DbSet<StockAdjustment> StockAdjustments => Set<StockAdjustment>();
@@ -50,6 +49,7 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<ExpenseCategory> ExpenseCategories => Set<ExpenseCategory>();
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<ExpenseAttachment> ExpenseAttachments => Set<ExpenseAttachment>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

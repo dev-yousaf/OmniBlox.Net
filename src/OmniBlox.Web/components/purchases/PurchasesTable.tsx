@@ -12,15 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, RotateCcw } from "lucide-react";
+import { Eye, RotateCcw } from "lucide-react";
 import type { PurchaseOrder } from "@/hooks/use-purchases-api";
 
 function formatCurrency(n: number | string | undefined) {
@@ -135,26 +127,18 @@ export function PurchasesTable({
                 </TableCell>
                 {canManage ? (
                   <TableCell className="text-right">
-                    {po.status === "PENDING" ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={async () => {
-                              if (onReceive) await onReceive(po);
-                            }}
-                          >
-                            Mark as Received
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : null}
+                    <div className="flex items-center justify-end gap-1">
+                      <Link href={`/purchases/${po.id}`}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="View">
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                      </Link>
+                      {po.status === "PENDING" && (
+                        <Button variant="outline" size="sm" className="h-7 text-[12px]" onClick={async () => { if (onReceive) await onReceive(po); }}>
+                          <RotateCcw className="mr-1 h-3 w-3" /> Receive
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 ) : null}
               </TableRow>

@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, ChevronRight, Mail, Calendar, Shield, Crown, Briefcase, Users,
-  Activity, Trash2, Pencil,
+  Activity, Trash2, Pencil, Package,
 } from "lucide-react";
-import { useTeamApi, type TeamUser } from "@/hooks/use-team-api";
+import { useTeamApi, type TeamUser, type UserProduct, type AuditLogEntry } from "@/hooks/use-team-api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -26,6 +26,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 const roleConfig: Record<string, { label: string; className: string; icon: any }> = {
   OWNER: { label: "Owner", className: "bg-yellow-100 text-yellow-700 border-yellow-200", icon: Crown },
@@ -37,6 +45,13 @@ const roleConfig: Record<string, { label: string; className: string; icon: any }
 const statusConfig: Record<string, { label: string; className: string }> = {
   active: { label: "Active", className: "bg-emerald-100 text-emerald-700 border-emerald-200" },
   inactive: { label: "Inactive", className: "bg-gray-100 text-gray-700 border-gray-200" },
+};
+
+const actionColors: Record<string, string> = {
+  CREATED: "bg-green-100 text-green-700",
+  UPDATED: "bg-blue-100 text-blue-700",
+  DELETED: "bg-red-100 text-red-700",
+  LOGIN: "bg-purple-100 text-purple-700",
 };
 
 export default function UserDetailPage() {
@@ -51,7 +66,12 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const { getUser, deleteUser } = useTeamApi();
+  const [products, setProducts] = useState<UserProduct[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditPages, setAuditPages] = useState(1);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const { getUser, deleteUser, getUserProducts, getUserAuditLogs } = useTeamApi();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -61,6 +81,13 @@ export default function UserDetailPage() {
         setLoading(true);
         const userData = await getUser(params.id as string);
         setUser(userData);
+        const [productData, auditData] = await Promise.all([
+          getUserProducts(params.id as string),
+          getUserAuditLogs(params.id as string, 1, 10),
+        ]);
+        setProducts(productData);
+        setAuditLogs(auditData.logs);
+        setAuditPages(auditData.pages);
       } catch (error) {
         toast({ title: "Error", description: "Failed to load user details.", variant: "destructive" });
         router.push(`/${ws}/people/users`);
@@ -69,7 +96,22 @@ export default function UserDetailPage() {
       }
     };
     loadUser();
-  }, [params.id, getUser, toast, router]);
+  }, [params.id, getUser, toast, router, getUserProducts, getUserAuditLogs]);
+
+  const loadMoreAuditLogs = async (page: number) => {
+    if (!params.id) return;
+    setAuditLoading(true);
+    try {
+      const data = await getUserAuditLogs(params.id as string, page, 10);
+      setAuditLogs(data.logs);
+      setAuditPage(data.page);
+      setAuditPages(data.pages);
+    } catch {
+      toast({ title: "Error", description: "Failed to load audit logs.", variant: "destructive" });
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   if (!canView) return <PageError type="forbidden" />;
 
@@ -216,6 +258,97 @@ export default function UserDetailPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Products Created */}
+      <div className="border rounded-[5px] bg-card shadow-sm">
+        <div className="px-5 py-[15px] border-b">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Package className="h-4 w-4" />
+            Products Created ({products.length})
+          </h2>
+        </div>
+        <div className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/50">
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">SKU</TableHead>
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">Name</TableHead>
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">Category</TableHead>
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">Price</TableHead>
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">Stock</TableHead>
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {products.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-6 text-muted-foreground text-sm">No products created</TableCell></TableRow>
+              ) : (
+                products.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-mono text-[13px]">{p.sku}</TableCell>
+                    <TableCell>
+                      <Link href={`/products/${p.id}`} className="text-[13px] font-medium hover:underline">{p.name}</Link>
+                    </TableCell>
+                    <TableCell className="text-[13px]">{p.category}</TableCell>
+                    <TableCell className="text-[13px]">${p.salePrice.toFixed(2)}</TableCell>
+                    <TableCell className="text-[13px]">{p.stock}</TableCell>
+                    <TableCell className="text-[13px]">{formatDate(p.createdAt)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      {/* Audit Logs */}
+      <div className="border rounded-[5px] bg-card shadow-sm">
+        <div className="px-5 py-[15px] border-b flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Activity className="h-4 w-4" />
+            Audit Logs
+          </h2>
+        </div>
+        <div className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/50">
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">Timestamp</TableHead>
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">Action</TableHead>
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">Entity</TableHead>
+                <TableHead className="text-[12px] font-semibold text-muted-foreground">Details</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {auditLogs.length === 0 ? (
+                <TableRow><TableCell colSpan={4} className="text-center py-6 text-muted-foreground text-sm">No audit logs found</TableCell></TableRow>
+              ) : (
+                auditLogs.map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell className="text-[13px]">{formatDateTime(log.createdAt)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={`font-medium text-xs ${actionColors[log.action] || "bg-gray-100 text-gray-700"}`}>
+                        {log.action}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-[13px]">{log.entity}{log.entityId ? ` #${log.entityId.slice(0, 8)}` : ""}</TableCell>
+                    <TableCell className="text-[13px] text-muted-foreground max-w-[300px] truncate">{log.details || "—"}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        {auditPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/50">
+            <div className="text-[13px] text-muted-foreground">Page {auditPage} of {auditPages}</div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => loadMoreAuditLogs(auditPage - 1)} disabled={auditPage <= 1 || auditLoading}>Previous</Button>
+              <Button variant="outline" size="sm" onClick={() => loadMoreAuditLogs(auditPage + 1)} disabled={auditPage >= auditPages || auditLoading}>Next</Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Delete Dialog */}

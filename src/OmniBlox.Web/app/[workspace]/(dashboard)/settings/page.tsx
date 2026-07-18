@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,12 +29,70 @@ import {
   Package,
   Mail,
   Database,
+  Lock,
 } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
+import { api } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
+import { useTeamApi } from "@/hooks/use-team-api";
 
 export default function SettingsPage() {
+  const { user, refreshUser } = useAuth();
+  const { toast } = useToast();
+  const { changePassword } = useTeamApi();
+  const [saving, setSaving] = useState(false);
+
+  const [companyName, setCompanyName] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [country, setCountry] = useState("");
+
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+
   const [emailEnabled, setEmailEnabled] = useState(true);
   const [autoBackup, setAutoBackup] = useState(true);
   const [lowStockAlerts, setLowStockAlerts] = useState(true);
+
+  useEffect(() => {
+    if (user?.company) {
+      setCompanyName(user.company.name || "");
+    }
+    const userAny = user as any;
+    setIndustry(userAny?.company?.industry || userAny?.industry || "");
+    setCountry(userAny?.company?.country || userAny?.country || "");
+  }, [user]);
+
+  const handleSaveCompany = async () => {
+    setSaving(true);
+    try {
+      await api.updateProfile({ companyName, industry, country });
+      await refreshUser({ silent: true });
+      toast({ title: "Success", description: "Company information updated." });
+    } catch {
+      toast({ title: "Error", description: "Failed to update company info.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword) {
+      toast({ title: "Error", description: "Please fill in all password fields.", variant: "destructive" });
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await changePassword(user!.id, { currentPassword, newPassword });
+      setCurrentPassword("");
+      setNewPassword("");
+      toast({ title: "Success", description: "Password changed successfully." });
+    } catch {
+      toast({ title: "Error", description: "Failed to change password.", variant: "destructive" });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -52,6 +110,7 @@ export default function SettingsPage() {
           <TabsTrigger value="currencies">Currencies</TabsTrigger>
           <TabsTrigger value="inventory">Inventory</TabsTrigger>
           <TabsTrigger value="email">Email</TabsTrigger>
+          <TabsTrigger value="password">Password</TabsTrigger>
           <TabsTrigger value="system">System</TabsTrigger>
         </TabsList>
 
@@ -70,40 +129,24 @@ export default function SettingsPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="company-name">Company Name</Label>
-                  <Input id="company-name" defaultValue="OmniBlox Inc" />
+                  <Input id="company-name" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="company-email">Email</Label>
-                  <Input
-                    id="company-email"
-                    type="email"
-                    defaultValue="info@OmniBlox.app"
-                  />
+                  <Input id="company-email" type="email" value={user?.email || ""} disabled />
                 </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="company-phone">Phone</Label>
-                  <Input id="company-phone" defaultValue="+1 234 567 8900" />
+                  <Label htmlFor="company-industry">Industry</Label>
+                  <Input id="company-industry" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="e.g. Retail, Technology" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="company-website">Website</Label>
-                  <Input id="company-website" defaultValue="www.OmniBlox.app" />
+                  <Label htmlFor="company-country">Country</Label>
+                  <Input id="company-country" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g. United States" />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="company-address">Address</Label>
-                <Textarea
-                  id="company-address"
-                  defaultValue="123 Business St, New York, NY 10001"
-                  rows={3}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="company-logo">Company Logo</Label>
-                <Input id="company-logo" type="file" accept="image/*" />
-              </div>
-              <Button>Save Changes</Button>
+              <Button onClick={handleSaveCompany} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -211,19 +254,20 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="currency-symbol">Currency Symbol</Label>
-                  <Input id="currency-symbol" defaultValue="$" />
+                  <Input id="currency-symbol" defaultValue="$" maxLength={5} />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Decimal Places</Label>
+                <Label htmlFor="decimal-places">Decimal Places</Label>
                 <Select defaultValue="2">
-                  <SelectTrigger>
+                  <SelectTrigger id="decimal-places">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="0">0</SelectItem>
                     <SelectItem value="2">2</SelectItem>
                     <SelectItem value="3">3</SelectItem>
+                    <SelectItem value="4">4</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -240,43 +284,22 @@ export default function SettingsPage() {
                 <CardTitle>Inventory Settings</CardTitle>
               </div>
               <CardDescription>
-                Configure inventory and stock management
+                Configure inventory thresholds and notifications
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="low-stock-threshold">Low Stock Threshold</Label>
-                <Input
-                  id="low-stock-threshold"
-                  type="number"
-                  defaultValue="10"
-                />
+                <Input id="low-stock-threshold" type="number" defaultValue={10} />
               </div>
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Low Stock Alerts</Label>
                   <p className="text-sm text-muted-foreground">
-                    Receive notifications when stock is low
+                    Send notifications when stock is below threshold
                   </p>
                 </div>
-                <Switch
-                  checked={lowStockAlerts}
-                  onCheckedChange={setLowStockAlerts}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="default-warehouse">Default Warehouse</Label>
-                <Select defaultValue="main">
-                  <SelectTrigger id="default-warehouse">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="main">Main Warehouse</SelectItem>
-                    <SelectItem value="secondary">
-                      Secondary Warehouse
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <Switch checked={lowStockAlerts} onCheckedChange={setLowStockAlerts} />
               </div>
               <Button>Save Changes</Button>
             </CardContent>
@@ -297,49 +320,65 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Enable Email Notifications</Label>
+                  <Label>Enable Email</Label>
                   <p className="text-sm text-muted-foreground">
-                    Send automated emails to customers
+                    Send emails for invoices, quotes, and notifications
                   </p>
                 </div>
-                <Switch
-                  checked={emailEnabled}
-                  onCheckedChange={setEmailEnabled}
-                />
+                <Switch checked={emailEnabled} onCheckedChange={setEmailEnabled} />
               </div>
-              {emailEnabled && (
-                <>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="smtp-host">SMTP Host</Label>
-                      <Input id="smtp-host" placeholder="smtp.gmail.com" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="smtp-port">SMTP Port</Label>
-                      <Input id="smtp-port" type="number" placeholder="587" />
-                    </div>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="smtp-username">Username</Label>
-                      <Input id="smtp-username" type="email" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="smtp-password">Password</Label>
-                      <PasswordInput id="smtp-password" />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="from-email">From Email</Label>
-                    <Input
-                      id="from-email"
-                      type="email"
-                      defaultValue="noreply@OmniBlox.app"
-                    />
-                  </div>
-                </>
-              )}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="smtp-host">SMTP Host</Label>
+                  <Input id="smtp-host" defaultValue="smtp.gmail.com" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="smtp-port">SMTP Port</Label>
+                  <Input id="smtp-port" type="number" defaultValue={587} />
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="smtp-user">Username</Label>
+                  <Input id="smtp-user" type="email" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="smtp-pass">Password</Label>
+                  <Input id="smtp-pass" type="password" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="from-email">From Email</Label>
+                <Input id="from-email" type="email" />
+              </div>
               <Button>Save Changes</Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="password" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Lock className="h-5 w-5" />
+                <CardTitle>Change Password</CardTitle>
+              </div>
+              <CardDescription>
+                Update your account password
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="current-password">Current Password</Label>
+                <PasswordInput id="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-password">New Password</Label>
+                <PasswordInput id="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+              </div>
+              <Button onClick={handleChangePassword} disabled={changingPassword}>
+                {changingPassword ? "Changing..." : "Change Password"}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -352,43 +391,18 @@ export default function SettingsPage() {
                 <CardTitle>System Settings</CardTitle>
               </div>
               <CardDescription>
-                Configure system preferences and maintenance
+                Configure system-level preferences and maintenance
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Automatic Backups</Label>
+                  <Label>Auto Backup</Label>
                   <p className="text-sm text-muted-foreground">
-                    Automatically backup data daily
+                    Automatically backup data periodically
                   </p>
                 </div>
                 <Switch checked={autoBackup} onCheckedChange={setAutoBackup} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="backup-time">Backup Time</Label>
-                <Input id="backup-time" type="time" defaultValue="02:00" />
-              </div>
-              <div className="space-y-2">
-                <Label>Data Retention</Label>
-                <Select defaultValue="1year">
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="6months">6 Months</SelectItem>
-                    <SelectItem value="1year">1 Year</SelectItem>
-                    <SelectItem value="2years">2 Years</SelectItem>
-                    <SelectItem value="forever">Forever</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="pt-4 border-t">
-                <Button variant="destructive">Clear All Local Data</Button>
-                <p className="text-sm text-muted-foreground mt-2">
-                  This will remove all locally stored data. This action cannot
-                  be undone.
-                </p>
               </div>
               <Button>Save Changes</Button>
             </CardContent>

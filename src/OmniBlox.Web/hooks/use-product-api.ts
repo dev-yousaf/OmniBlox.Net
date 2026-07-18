@@ -16,9 +16,6 @@ interface CreateProductData {
   reorderLevel?: number;
   status?: "ACTIVE" | "INACTIVE" | "DISCONTINUED";
   type?: "STANDARD" | "DIGITAL" | "SERVICE" | "COMBO";
-  hasVariants?: boolean;
-  attributes?: Record<string, string>;
-  parentId?: string;
   comboItems?: { productId: string; quantity: number }[];
   warehouseId?: string;
   manufacturedDate?: string;
@@ -186,13 +183,6 @@ export function useProductApi() {
     [get]
   );
 
-  const getVariants = useCallback(
-    async (id: string): Promise<Product[]> => {
-      return get(`/products/${id}/variants`) as Promise<Product[]>;
-    },
-    [get]
-  );
-
   const importCsv = useCallback(
     async (products: CreateProductData[]): Promise<{ imported: number; errors: string[] }> => {
       return post("/products/import", products) as Promise<{ imported: number; errors: string[] }>;
@@ -284,7 +274,6 @@ export function useProductApi() {
     getExpiredProducts,
     getProductStats,
     getStockLedger,
-    getVariants,
     importCsv,
     exportCsv,
     getComboItems,

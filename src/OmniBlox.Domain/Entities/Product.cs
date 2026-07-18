@@ -31,12 +31,9 @@ public class Product : BaseEntity, ITenantEntity
     public DateTime? ManufacturedDate { get; set; }
     public DateTime? ExpiryDate { get; set; }
 
-    public bool HasVariants { get; set; }
-    public string? Attributes { get; set; }
-    public Guid? ParentId { get; set; }
-    public Product? Parent { get; set; }
-    public ICollection<Product> Variants { get; set; } = [];
-
     public Guid CompanyId { get; set; }
     public Company Company { get; set; } = null!;
+
+    public Guid? CreatedById { get; set; }
+    public User? CreatedByUser { get; set; }
 }

@@ -10,16 +10,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Plus, Search, MoreHorizontal, Edit, Trash2, Eye, Loader2, CheckCircle2,
+  Plus, Search, Edit, Trash2, Eye, Loader2, CheckCircle2,
   RotateCcw, ChevronLeft, ChevronRight, RefreshCw, FileText, FileSpreadsheet, DollarSign, TrendingUp,
   Package, CalendarIcon, Warehouse,
 } from "lucide-react";
@@ -438,56 +434,34 @@ export default function SalesPage() {
                           </Badge>
                         ) : null}
                       </td>
-                      <td className="w-[80px] px-5" onClick={(e) => e.stopPropagation()}>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7">
-                              <MoreHorizontal className="h-3.5 w-3.5" />
+                      <td className="w-[120px] px-5" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <Link href={`/sales/${sale.id}`}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="View">
+                              <Eye className="h-3.5 w-3.5" />
                             </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-[160px]">
-                            <DropdownMenuLabel className="text-xs">Actions</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem asChild>
-                              <Link href={`/sales/${sale.id}`}>
-                                <Eye className="mr-2 h-3.5 w-3.5" /> View Details
-                              </Link>
-                            </DropdownMenuItem>
-                            {canManage && (
-                              <DropdownMenuItem asChild>
-                                <Link href={`/sales/${sale.id}/edit`}>
-                                  <Edit className="mr-2 h-3.5 w-3.5" /> Edit
-                                </Link>
-                              </DropdownMenuItem>
-                            )}
-                            {sale.paymentStatus !== "PAID" && canManage && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onSelect={(event) => { event.preventDefault(); markSalePaid(sale.id).catch(() => {}); }}
-                                >
-                                  <CheckCircle2 className="mr-2 h-3.5 w-3.5" />
-                                  {isMarking ? "Marking..." : "Mark Paid"}
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            {(user?.role === "OWNER" || user?.role === "ADMIN") && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="text-destructive"
-                                  onSelect={(event) => {
-                                    event.preventDefault();
-                                    setPendingDelete({ id: sale.id, customer: sale.customerName, invoice: sale.invoiceNumber });
-                                  }}
-                                >
-                                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                                  {isDeleting ? "Deleting..." : "Delete"}
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                          </Link>
+                          {canManage && (
+                            <Link href={`/sales/${sale.id}/edit`}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit">
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                            </Link>
+                          )}
+                          {sale.paymentStatus !== "PAID" && canManage && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Mark Paid" onClick={() => markSalePaid(sale.id).catch(() => {})}>
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {(user?.role === "OWNER" || user?.role === "ADMIN") && (
+                            <Button
+                              variant="ghost" size="icon" className="h-7 w-7 text-destructive" title="Delete"
+                              onClick={() => setPendingDelete({ id: sale.id, customer: sale.customerName, invoice: sale.invoiceNumber })}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

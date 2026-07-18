@@ -11,10 +11,6 @@ export interface Product {
   name: string
   description?: string
   type?: "STANDARD" | "DIGITAL" | "SERVICE" | "COMBO"
-  hasVariants?: boolean
-  attributes?: Record<string, string> | null
-  parentId?: string | null
-  variants?: Product[]
   category: string
   brand?: string
   unit: string

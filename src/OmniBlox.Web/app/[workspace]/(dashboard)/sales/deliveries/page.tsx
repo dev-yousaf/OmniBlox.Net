@@ -20,20 +20,11 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   ArrowLeft,
   Search,
   Truck,
   Package,
   CheckCircle,
-  MoreHorizontal,
   Loader2,
 } from "lucide-react";
 import { WorkspaceLink as Link } from "@/components/workspace-link";
@@ -285,34 +276,18 @@ export default function DeliveriesPage() {
                         </TableCell>
                         {canManage && (
                           <TableCell className="text-right">
-                            {delivery.status === "PENDING" ||
-                            delivery.status === "IN_TRANSIT" ? (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="sm">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                  <DropdownMenuSeparator />
-                                  {delivery.status === "PENDING" && (
-                                    <DropdownMenuItem
-                                      onClick={() => handleDispatch(delivery)}
-                                    >
-                                      Mark as Dispatched
-                                    </DropdownMenuItem>
-                                  )}
-                                  {delivery.status === "IN_TRANSIT" && (
-                                    <DropdownMenuItem
-                                      onClick={() => handleComplete(delivery)}
-                                    >
-                                      Mark as Delivered
-                                    </DropdownMenuItem>
-                                  )}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            ) : null}
+                            <div className="flex items-center justify-end gap-1">
+                              {delivery.status === "PENDING" && (
+                                <Button variant="outline" size="sm" className="h-7 text-[12px]" onClick={() => handleDispatch(delivery)}>
+                                  <Truck className="mr-1 h-3 w-3" /> Dispatch
+                                </Button>
+                              )}
+                              {delivery.status === "IN_TRANSIT" && (
+                                <Button variant="outline" size="sm" className="h-7 text-[12px]" onClick={() => handleComplete(delivery)}>
+                                  <CheckCircle className="mr-1 h-3 w-3" /> Deliver
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         )}
                       </TableRow>

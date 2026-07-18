@@ -71,25 +71,16 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(p => p.Warranty)
             .HasMaxLength(200);
 
-        builder.Property(p => p.HasVariants)
-            .IsRequired()
-            .HasDefaultValue(false);
-
-        builder.Property(p => p.Attributes)
-            .HasColumnType("text");
-
-        builder.Property(p => p.ParentId);
-
-        builder.HasOne(p => p.Parent)
-            .WithMany(p => p.Variants)
-            .HasForeignKey(p => p.ParentId)
-            .OnDelete(DeleteBehavior.Restrict);
-
         builder.HasIndex(p => new { p.CompanyId, p.SKU }).IsUnique();
 
         builder.HasOne(p => p.Company)
             .WithMany()
             .HasForeignKey(p => p.CompanyId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(p => p.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(p => p.CreatedById)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
