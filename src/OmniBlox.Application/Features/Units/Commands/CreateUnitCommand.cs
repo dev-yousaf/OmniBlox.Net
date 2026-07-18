@@ -23,10 +23,12 @@ public class CreateUnitCommandHandler : IRequestHandler<CreateUnitCommand, UnitD
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public CreateUnitCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly ICrudService<Domain.Entities.Unit, UnitDto> _crud;
+    public CreateUnitCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, ICrudService<Domain.Entities.Unit, UnitDto> crud)
     {
         _context = context;
         _currentUser = currentUser;
+        _crud = crud;
     }
 
     public async Task<UnitDto> Handle(CreateUnitCommand request, CancellationToken ct)
@@ -46,9 +48,7 @@ public class CreateUnitCommandHandler : IRequestHandler<CreateUnitCommand, UnitD
             CompanyId = companyId,
         };
 
-        _context.Units.Add(entity);
-        await _context.SaveChangesAsync(ct);
-        return UnitDto.FromEntity(entity);
+        return await _crud.CreateAsync(entity, UnitDto.FromEntity, ct);
     }
 }
 

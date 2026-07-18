@@ -23,10 +23,12 @@ public class CreateBrandCommandHandler : IRequestHandler<CreateBrandCommand, Bra
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public CreateBrandCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly ICrudService<Brand, BrandDto> _crud;
+    public CreateBrandCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, ICrudService<Brand, BrandDto> crud)
     {
         _context = context;
         _currentUser = currentUser;
+        _crud = crud;
     }
 
     public async Task<BrandDto> Handle(CreateBrandCommand request, CancellationToken ct)
@@ -47,9 +49,7 @@ public class CreateBrandCommandHandler : IRequestHandler<CreateBrandCommand, Bra
             CompanyId = companyId,
         };
 
-        _context.Brands.Add(entity);
-        await _context.SaveChangesAsync(ct);
-        return BrandDto.FromEntity(entity);
+        return await _crud.CreateAsync(entity, BrandDto.FromEntity, ct);
     }
 }
 

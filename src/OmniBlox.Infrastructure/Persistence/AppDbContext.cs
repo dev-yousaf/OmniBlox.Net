@@ -51,6 +51,8 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<ExpenseAttachment> ExpenseAttachments => Set<ExpenseAttachment>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
+    DbSet<TEntity> IApplicationDbContext.Set<TEntity>() => Set<TEntity>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

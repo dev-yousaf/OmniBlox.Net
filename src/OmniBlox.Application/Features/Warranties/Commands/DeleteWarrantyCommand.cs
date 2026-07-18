@@ -1,8 +1,7 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Warranties.DTOs;
 using OmniBlox.Domain.Entities;
-using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.Warranties.Commands;
 
@@ -13,14 +12,11 @@ public record DeleteWarrantyCommand : IRequest
 
 public class DeleteWarrantyCommandHandler : IRequestHandler<DeleteWarrantyCommand>
 {
-    private readonly IApplicationDbContext _context;
-    public DeleteWarrantyCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<Warranty, WarrantyDto> _crud;
+    public DeleteWarrantyCommandHandler(ICrudService<Warranty, WarrantyDto> crud) => _crud = crud;
 
     public async Task Handle(DeleteWarrantyCommand request, CancellationToken ct)
     {
-        var entity = await _context.Warranties.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(Warranty), request.Id);
-        _context.Warranties.Remove(entity);
-        await _context.SaveChangesAsync(ct);
+        await _crud.DeleteAsync(request.Id, ct);
     }
 }

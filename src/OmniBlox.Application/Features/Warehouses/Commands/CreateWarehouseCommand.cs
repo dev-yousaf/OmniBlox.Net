@@ -18,10 +18,12 @@ public class CreateWarehouseCommandHandler : IRequestHandler<CreateWarehouseComm
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public CreateWarehouseCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly ICrudService<Warehouse, WarehouseDto> _crud;
+    public CreateWarehouseCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, ICrudService<Warehouse, WarehouseDto> crud)
     {
         _context = context;
         _currentUser = currentUser;
+        _crud = crud;
     }
 
     public async Task<WarehouseDto> Handle(CreateWarehouseCommand request, CancellationToken ct)
@@ -37,9 +39,7 @@ public class CreateWarehouseCommandHandler : IRequestHandler<CreateWarehouseComm
             CompanyId = companyId,
         };
 
-        _context.Warehouses.Add(entity);
-        await _context.SaveChangesAsync(ct);
-        return WarehouseDto.FromEntity(entity);
+        return await _crud.CreateAsync(entity, WarehouseDto.FromEntity, ct);
     }
 }
 

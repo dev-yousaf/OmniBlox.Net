@@ -25,23 +25,19 @@ public record UpdateSubCategoryCommand : IRequest<SubCategoryDto>
 public class UpdateSubCategoryCommandHandler : IRequestHandler<UpdateSubCategoryCommand, SubCategoryDto>
 {
     private readonly IApplicationDbContext _context;
-    public UpdateSubCategoryCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<SubCategory, SubCategoryDto> _crud;
+    public UpdateSubCategoryCommandHandler(IApplicationDbContext context, ICrudService<SubCategory, SubCategoryDto> crud)
+    {
+        _context = context;
+        _crud = crud;
+    }
 
     public async Task<SubCategoryDto> Handle(UpdateSubCategoryCommand request, CancellationToken ct)
     {
-        var entity = await _context.SubCategories.Include(x => x.Category).AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(SubCategory), request.Id);
-
-        if (request.Name is not null) entity.Name = request.Name;
-        if (request.Description is not null) entity.Description = request.Description;
-        if (request.Code is not null) entity.Code = request.Code;
-        if (request.ImageUrl is not null) entity.ImageUrl = request.ImageUrl;
-        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
         if (request.CategoryId.HasValue)
         {
             var categoryExists = await _context.ProductCategories.AnyAsync(x => x.Id == request.CategoryId.Value, ct);
             if (!categoryExists) throw new NotFoundException(nameof(ProductCategory), request.CategoryId.Value);
-            entity.CategoryId = request.CategoryId.Value;
         }
 
         if (request.Slug is not null)
@@ -49,12 +45,18 @@ public class UpdateSubCategoryCommandHandler : IRequestHandler<UpdateSubCategory
             var slug = request.Slug.ToLowerInvariant();
             var exists = await _context.SubCategories.AnyAsync(x => x.Slug == slug && x.Id != request.Id, ct);
             if (exists) throw new ConflictException($"SubCategory with slug '{slug}' already exists.");
-            entity.Slug = slug;
         }
 
-        entity.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(ct);
-        return SubCategoryDto.FromEntity(entity);
+        return await _crud.UpdateAsync(request.Id, entity =>
+        {
+            if (request.Name is not null) entity.Name = request.Name;
+            if (request.Description is not null) entity.Description = request.Description;
+            if (request.Code is not null) entity.Code = request.Code;
+            if (request.ImageUrl is not null) entity.ImageUrl = request.ImageUrl;
+            if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
+            if (request.CategoryId.HasValue) entity.CategoryId = request.CategoryId.Value;
+            if (request.Slug is not null) entity.Slug = request.Slug.ToLowerInvariant();
+        }, SubCategoryDto.FromEntity, ct);
     }
 }
 

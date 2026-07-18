@@ -37,5 +37,6 @@ public interface IApplicationDbContext
     DbSet<Expense> Expenses { get; }
     DbSet<ExpenseAttachment> ExpenseAttachments { get; }
     DbSet<AuditLog> AuditLogs { get; }
+    DbSet<TEntity> Set<TEntity>() where TEntity : class;
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

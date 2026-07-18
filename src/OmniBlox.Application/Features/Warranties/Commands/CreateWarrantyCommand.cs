@@ -23,10 +23,12 @@ public class CreateWarrantyCommandHandler : IRequestHandler<CreateWarrantyComman
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public CreateWarrantyCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly ICrudService<Warranty, WarrantyDto> _crud;
+    public CreateWarrantyCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, ICrudService<Warranty, WarrantyDto> crud)
     {
         _context = context;
         _currentUser = currentUser;
+        _crud = crud;
     }
 
     public async Task<WarrantyDto> Handle(CreateWarrantyCommand request, CancellationToken ct)
@@ -45,9 +47,7 @@ public class CreateWarrantyCommandHandler : IRequestHandler<CreateWarrantyComman
             CompanyId = companyId,
         };
 
-        _context.Warranties.Add(entity);
-        await _context.SaveChangesAsync(ct);
-        return WarrantyDto.FromEntity(entity);
+        return await _crud.CreateAsync(entity, WarrantyDto.FromEntity, ct);
     }
 }
 

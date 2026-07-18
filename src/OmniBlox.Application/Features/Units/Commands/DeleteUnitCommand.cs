@@ -1,8 +1,6 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
-using OmniBlox.Domain.Entities;
-using OmniBlox.Shared.Exceptions;
+using OmniBlox.Application.Features.Units.DTOs;
 
 namespace OmniBlox.Application.Features.Units.Commands;
 
@@ -13,14 +11,11 @@ public record DeleteUnitCommand : IRequest
 
 public class DeleteUnitCommandHandler : IRequestHandler<DeleteUnitCommand>
 {
-    private readonly IApplicationDbContext _context;
-    public DeleteUnitCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<Domain.Entities.Unit, UnitDto> _crud;
+    public DeleteUnitCommandHandler(ICrudService<Domain.Entities.Unit, UnitDto> crud) => _crud = crud;
 
     public async Task Handle(DeleteUnitCommand request, CancellationToken ct)
     {
-        var entity = await _context.Units.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(Domain.Entities.Unit), request.Id);
-        _context.Units.Remove(entity);
-        await _context.SaveChangesAsync(ct);
+        await _crud.DeleteAsync(request.Id, ct);
     }
 }

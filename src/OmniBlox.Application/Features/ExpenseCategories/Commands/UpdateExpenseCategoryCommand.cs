@@ -1,10 +1,8 @@
 using FluentValidation;
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Expenses.DTOs;
 using OmniBlox.Domain.Entities;
-using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.ExpenseCategories.Commands;
 
@@ -17,27 +15,22 @@ public record UpdateExpenseCategoryCommand : IRequest<ExpenseCategoryDto>
 
 public class UpdateExpenseCategoryCommandHandler : IRequestHandler<UpdateExpenseCategoryCommand, ExpenseCategoryDto>
 {
-    private readonly IApplicationDbContext _context;
-    public UpdateExpenseCategoryCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<ExpenseCategory, ExpenseCategoryDto> _crud;
+    public UpdateExpenseCategoryCommandHandler(ICrudService<ExpenseCategory, ExpenseCategoryDto> crud) => _crud = crud;
 
     public async Task<ExpenseCategoryDto> Handle(UpdateExpenseCategoryCommand request, CancellationToken ct)
     {
-        var entity = await _context.ExpenseCategories.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(ExpenseCategory), request.Id);
-
-        if (request.Name is not null) entity.Name = request.Name;
-        if (request.Description is not null) entity.Description = request.Description;
-
-        entity.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(ct);
-
-        return new ExpenseCategoryDto
+        return await _crud.UpdateAsync(request.Id, entity =>
         {
-            Id = entity.Id,
-            Name = entity.Name,
-            Description = entity.Description,
-            CompanyId = entity.CompanyId,
-        };
+            if (request.Name is not null) entity.Name = request.Name;
+            if (request.Description is not null) entity.Description = request.Description;
+        }, e => new ExpenseCategoryDto
+        {
+            Id = e.Id,
+            Name = e.Name,
+            Description = e.Description,
+            CompanyId = e.CompanyId,
+        }, ct);
     }
 }
 

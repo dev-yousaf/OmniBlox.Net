@@ -23,29 +23,30 @@ public record UpdateBrandCommand : IRequest<BrandDto>
 public class UpdateBrandCommandHandler : IRequestHandler<UpdateBrandCommand, BrandDto>
 {
     private readonly IApplicationDbContext _context;
-    public UpdateBrandCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<Brand, BrandDto> _crud;
+    public UpdateBrandCommandHandler(IApplicationDbContext context, ICrudService<Brand, BrandDto> crud)
+    {
+        _context = context;
+        _crud = crud;
+    }
 
     public async Task<BrandDto> Handle(UpdateBrandCommand request, CancellationToken ct)
     {
-        var entity = await _context.Brands.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
-
-        if (request.Name is not null) entity.Name = request.Name;
-        if (request.ImageUrl is not null) entity.ImageUrl = request.ImageUrl;
-        if (request.Description is not null) entity.Description = request.Description;
-        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
-
         if (request.Slug is not null)
         {
             var slug = request.Slug.ToLowerInvariant();
             var exists = await _context.Brands.AnyAsync(x => x.Slug == slug && x.Id != request.Id, ct);
             if (exists) throw new ConflictException($"Brand with slug '{slug}' already exists.");
-            entity.Slug = slug;
         }
 
-        entity.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(ct);
-        return BrandDto.FromEntity(entity);
+        return await _crud.UpdateAsync(request.Id, entity =>
+        {
+            if (request.Name is not null) entity.Name = request.Name;
+            if (request.ImageUrl is not null) entity.ImageUrl = request.ImageUrl;
+            if (request.Description is not null) entity.Description = request.Description;
+            if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
+            if (request.Slug is not null) entity.Slug = request.Slug.ToLowerInvariant();
+        }, BrandDto.FromEntity, ct);
     }
 }
 

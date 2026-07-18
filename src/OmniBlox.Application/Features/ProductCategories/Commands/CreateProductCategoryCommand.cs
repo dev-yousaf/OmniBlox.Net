@@ -22,10 +22,12 @@ public class CreateProductCategoryCommandHandler : IRequestHandler<CreateProduct
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public CreateProductCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly ICrudService<ProductCategory, ProductCategoryDto> _crud;
+    public CreateProductCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, ICrudService<ProductCategory, ProductCategoryDto> crud)
     {
         _context = context;
         _currentUser = currentUser;
+        _crud = crud;
     }
 
     public async Task<ProductCategoryDto> Handle(CreateProductCategoryCommand request, CancellationToken ct)
@@ -45,9 +47,7 @@ public class CreateProductCategoryCommandHandler : IRequestHandler<CreateProduct
             CompanyId = companyId,
         };
 
-        _context.ProductCategories.Add(entity);
-        await _context.SaveChangesAsync(ct);
-        return ProductCategoryDto.FromEntity(entity);
+        return await _crud.CreateAsync(entity, ProductCategoryDto.FromEntity, ct);
     }
 }
 

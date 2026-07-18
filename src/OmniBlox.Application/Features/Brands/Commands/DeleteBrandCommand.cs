@@ -1,8 +1,7 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Brands.DTOs;
 using OmniBlox.Domain.Entities;
-using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.Brands.Commands;
 
@@ -13,14 +12,11 @@ public record DeleteBrandCommand : IRequest
 
 public class DeleteBrandCommandHandler : IRequestHandler<DeleteBrandCommand>
 {
-    private readonly IApplicationDbContext _context;
-    public DeleteBrandCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<Brand, BrandDto> _crud;
+    public DeleteBrandCommandHandler(ICrudService<Brand, BrandDto> crud) => _crud = crud;
 
     public async Task Handle(DeleteBrandCommand request, CancellationToken ct)
     {
-        var entity = await _context.Brands.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
-        _context.Brands.Remove(entity);
-        await _context.SaveChangesAsync(ct);
+        await _crud.DeleteAsync(request.Id, ct);
     }
 }

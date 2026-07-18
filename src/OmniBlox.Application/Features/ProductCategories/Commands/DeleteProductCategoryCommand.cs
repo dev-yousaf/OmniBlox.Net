@@ -15,7 +15,12 @@ public record DeleteProductCategoryCommand : IRequest<DeleteCategoryResponse>
 public class DeleteProductCategoryCommandHandler : IRequestHandler<DeleteProductCategoryCommand, DeleteCategoryResponse>
 {
     private readonly IApplicationDbContext _context;
-    public DeleteProductCategoryCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<ProductCategory, ProductCategoryDto> _crud;
+    public DeleteProductCategoryCommandHandler(IApplicationDbContext context, ICrudService<ProductCategory, ProductCategoryDto> crud)
+    {
+        _context = context;
+        _crud = crud;
+    }
 
     public async Task<DeleteCategoryResponse> Handle(DeleteProductCategoryCommand request, CancellationToken ct)
     {
@@ -27,8 +32,7 @@ public class DeleteProductCategoryCommandHandler : IRequestHandler<DeleteProduct
             .Select(p => new AffectedProduct { Id = p.Id, Name = p.Name, Sku = p.SKU })
             .AsTracking().ToListAsync(ct);
 
-        _context.ProductCategories.Remove(entity);
-        await _context.SaveChangesAsync(ct);
+        await _crud.DeleteAsync(request.Id, ct);
 
         return new DeleteCategoryResponse
         {

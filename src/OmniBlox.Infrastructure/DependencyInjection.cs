@@ -32,6 +32,8 @@ public static class DependencyInjection
 
         services.AddScoped<IStockService, StockService>();
 
+        services.AddTransient(typeof(ICrudService<,>), typeof(CrudService<,>));
+
         return services;
     }
 }

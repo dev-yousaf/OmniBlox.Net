@@ -3,8 +3,6 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Units.DTOs;
-using OmniBlox.Domain.Entities;
-using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
 using OmniBlox.Shared.Extensions;
 
@@ -23,29 +21,30 @@ public record UpdateUnitCommand : IRequest<UnitDto>
 public class UpdateUnitCommandHandler : IRequestHandler<UpdateUnitCommand, UnitDto>
 {
     private readonly IApplicationDbContext _context;
-    public UpdateUnitCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<Domain.Entities.Unit, UnitDto> _crud;
+    public UpdateUnitCommandHandler(IApplicationDbContext context, ICrudService<Domain.Entities.Unit, UnitDto> crud)
+    {
+        _context = context;
+        _crud = crud;
+    }
 
     public async Task<UnitDto> Handle(UpdateUnitCommand request, CancellationToken ct)
     {
-        var entity = await _context.Units.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(Domain.Entities.Unit), request.Id);
-
-        if (request.Name is not null) entity.Name = request.Name;
-        if (request.ShortName is not null) entity.ShortName = request.ShortName;
-        if (request.Description is not null) entity.Description = request.Description;
-        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
-
-        if (request.Slug is not null)
+        var slug = request.Slug?.ToLowerInvariant();
+        if (slug is not null)
         {
-            var slug = request.Slug.ToLowerInvariant();
             var exists = await _context.Units.AnyAsync(x => x.Slug == slug && x.Id != request.Id, ct);
             if (exists) throw new ConflictException($"Unit with slug '{slug}' already exists.");
-            entity.Slug = slug;
         }
 
-        entity.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(ct);
-        return UnitDto.FromEntity(entity);
+        return await _crud.UpdateAsync(request.Id, entity =>
+        {
+            if (request.Name is not null) entity.Name = request.Name;
+            if (request.ShortName is not null) entity.ShortName = request.ShortName;
+            if (request.Description is not null) entity.Description = request.Description;
+            if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
+            if (slug is not null) entity.Slug = slug;
+        }, UnitDto.FromEntity, ct);
     }
 }
 

@@ -25,10 +25,12 @@ public class CreateSubCategoryCommandHandler : IRequestHandler<CreateSubCategory
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public CreateSubCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly ICrudService<SubCategory, SubCategoryDto> _crud;
+    public CreateSubCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, ICrudService<SubCategory, SubCategoryDto> crud)
     {
         _context = context;
         _currentUser = currentUser;
+        _crud = crud;
     }
 
     public async Task<SubCategoryDto> Handle(CreateSubCategoryCommand request, CancellationToken ct)
@@ -54,9 +56,7 @@ public class CreateSubCategoryCommandHandler : IRequestHandler<CreateSubCategory
             CompanyId = companyId,
         };
 
-        _context.SubCategories.Add(entity);
-        await _context.SaveChangesAsync(ct);
-        return SubCategoryDto.FromEntity(entity);
+        return await _crud.CreateAsync(entity, SubCategoryDto.FromEntity, ct);
     }
 }
 

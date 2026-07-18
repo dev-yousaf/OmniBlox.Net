@@ -17,11 +17,11 @@ public record CreateCustomerCommand : IRequest<CustomerDto>
 
 public class CreateCustomerCommandHandler : IRequestHandler<CreateCustomerCommand, CustomerDto>
 {
-    private readonly IApplicationDbContext _context;
+    private readonly ICrudService<Customer, CustomerDto> _crud;
 
-    public CreateCustomerCommandHandler(IApplicationDbContext context)
+    public CreateCustomerCommandHandler(ICrudService<Customer, CustomerDto> crud)
     {
-        _context = context;
+        _crud = crud;
     }
 
     public async Task<CustomerDto> Handle(CreateCustomerCommand request, CancellationToken ct)
@@ -35,10 +35,7 @@ public class CreateCustomerCommandHandler : IRequestHandler<CreateCustomerComman
             Status = ActiveStatus.ACTIVE,
         };
 
-        _context.Customers.Add(customer);
-        await _context.SaveChangesAsync(ct);
-
-        return CustomerDto.FromEntity(customer);
+        return await _crud.CreateAsync(customer, CustomerDto.FromEntity, ct);
     }
 }
 

@@ -1,10 +1,8 @@
 using FluentValidation;
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Customers.DTOs;
 using OmniBlox.Domain.Entities;
-using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.Customers.Commands;
 
@@ -19,30 +17,22 @@ public record UpdateCustomerCommand : IRequest<CustomerDto>
 
 public class UpdateCustomerCommandHandler : IRequestHandler<UpdateCustomerCommand, CustomerDto>
 {
-    private readonly IApplicationDbContext _context;
+    private readonly ICrudService<Customer, CustomerDto> _crud;
 
-    public UpdateCustomerCommandHandler(IApplicationDbContext context)
+    public UpdateCustomerCommandHandler(ICrudService<Customer, CustomerDto> crud)
     {
-        _context = context;
+        _crud = crud;
     }
 
     public async Task<CustomerDto> Handle(UpdateCustomerCommand request, CancellationToken ct)
     {
-        var customer = await _context.Customers
-            .AsTracking().FirstOrDefaultAsync(c => c.Id == request.Id, ct);
-
-        if (customer is null)
-            throw new NotFoundException(nameof(Customer), request.Id);
-
-        if (request.Name is not null) customer.Name = request.Name;
-        if (request.Email is not null) customer.Email = request.Email;
-        if (request.Phone is not null) customer.Phone = request.Phone;
-        if (request.Address is not null) customer.Address = request.Address;
-
-        customer.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(ct);
-
-        return CustomerDto.FromEntity(customer);
+        return await _crud.UpdateAsync(request.Id, customer =>
+        {
+            if (request.Name is not null) customer.Name = request.Name;
+            if (request.Email is not null) customer.Email = request.Email;
+            if (request.Phone is not null) customer.Phone = request.Phone;
+            if (request.Address is not null) customer.Address = request.Address;
+        }, CustomerDto.FromEntity, ct);
     }
 }
 

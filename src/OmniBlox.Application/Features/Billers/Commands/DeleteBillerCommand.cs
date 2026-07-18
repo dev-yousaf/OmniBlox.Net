@@ -1,8 +1,7 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Billers.DTOs;
 using OmniBlox.Domain.Entities;
-using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.Billers.Commands;
 
@@ -13,14 +12,11 @@ public record DeleteBillerCommand : IRequest
 
 public class DeleteBillerCommandHandler : IRequestHandler<DeleteBillerCommand>
 {
-    private readonly IApplicationDbContext _context;
-    public DeleteBillerCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<Biller, BillerDto> _crud;
+    public DeleteBillerCommandHandler(ICrudService<Biller, BillerDto> crud) => _crud = crud;
 
     public async Task Handle(DeleteBillerCommand request, CancellationToken ct)
     {
-        var entity = await _context.Billers.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(Biller), request.Id);
-        _context.Billers.Remove(entity);
-        await _context.SaveChangesAsync(ct);
+        await _crud.DeleteAsync(request.Id, ct);
     }
 }

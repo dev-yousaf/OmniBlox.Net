@@ -1,11 +1,8 @@
 using FluentValidation;
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Warranties.DTOs;
 using OmniBlox.Domain.Entities;
-using OmniBlox.Domain.Enums;
-using OmniBlox.Shared.Exceptions;
 using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Warranties.Commands;
@@ -22,23 +19,19 @@ public record UpdateWarrantyCommand : IRequest<WarrantyDto>
 
 public class UpdateWarrantyCommandHandler : IRequestHandler<UpdateWarrantyCommand, WarrantyDto>
 {
-    private readonly IApplicationDbContext _context;
-    public UpdateWarrantyCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<Warranty, WarrantyDto> _crud;
+    public UpdateWarrantyCommandHandler(ICrudService<Warranty, WarrantyDto> crud) => _crud = crud;
 
     public async Task<WarrantyDto> Handle(UpdateWarrantyCommand request, CancellationToken ct)
     {
-        var entity = await _context.Warranties.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(Warranty), request.Id);
-
-        if (request.Name is not null) entity.Name = request.Name;
-        if (request.Duration.HasValue) entity.Duration = request.Duration.Value;
-        if (request.DurationType is not null) entity.DurationType = request.DurationType;
-        if (request.Description is not null) entity.Description = request.Description;
-        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
-
-        entity.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(ct);
-        return WarrantyDto.FromEntity(entity);
+        return await _crud.UpdateAsync(request.Id, entity =>
+        {
+            if (request.Name is not null) entity.Name = request.Name;
+            if (request.Duration.HasValue) entity.Duration = request.Duration.Value;
+            if (request.DurationType is not null) entity.DurationType = request.DurationType;
+            if (request.Description is not null) entity.Description = request.Description;
+            if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
+        }, WarrantyDto.FromEntity, ct);
     }
 }
 

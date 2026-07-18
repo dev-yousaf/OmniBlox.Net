@@ -17,11 +17,11 @@ public record CreateSupplierCommand : IRequest<SupplierDto>
 
 public class CreateSupplierCommandHandler : IRequestHandler<CreateSupplierCommand, SupplierDto>
 {
-    private readonly IApplicationDbContext _context;
+    private readonly ICrudService<Supplier, SupplierDto> _crud;
 
-    public CreateSupplierCommandHandler(IApplicationDbContext context)
+    public CreateSupplierCommandHandler(ICrudService<Supplier, SupplierDto> crud)
     {
-        _context = context;
+        _crud = crud;
     }
 
     public async Task<SupplierDto> Handle(CreateSupplierCommand request, CancellationToken ct)
@@ -35,10 +35,7 @@ public class CreateSupplierCommandHandler : IRequestHandler<CreateSupplierComman
             Status = ActiveStatus.ACTIVE,
         };
 
-        _context.Suppliers.Add(supplier);
-        await _context.SaveChangesAsync(ct);
-
-        return SupplierDto.FromEntity(supplier);
+        return await _crud.CreateAsync(supplier, SupplierDto.FromEntity, ct);
     }
 }
 

@@ -22,10 +22,12 @@ public class CreateBillerCommandHandler : IRequestHandler<CreateBillerCommand, B
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public CreateBillerCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly ICrudService<Biller, BillerDto> _crud;
+    public CreateBillerCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, ICrudService<Biller, BillerDto> crud)
     {
         _context = context;
         _currentUser = currentUser;
+        _crud = crud;
     }
 
     public async Task<BillerDto> Handle(CreateBillerCommand request, CancellationToken ct)
@@ -42,9 +44,7 @@ public class CreateBillerCommandHandler : IRequestHandler<CreateBillerCommand, B
             CompanyId = companyId,
         };
 
-        _context.Billers.Add(entity);
-        await _context.SaveChangesAsync(ct);
-        return BillerDto.FromEntity(entity);
+        return await _crud.CreateAsync(entity, BillerDto.FromEntity, ct);
     }
 }
 

@@ -16,10 +16,12 @@ public class CreateExpenseCategoryCommandHandler : IRequestHandler<CreateExpense
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUser;
-    public CreateExpenseCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    private readonly ICrudService<ExpenseCategory, ExpenseCategoryDto> _crud;
+    public CreateExpenseCategoryCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, ICrudService<ExpenseCategory, ExpenseCategoryDto> crud)
     {
         _context = context;
         _currentUser = currentUser;
+        _crud = crud;
     }
 
     public async Task<ExpenseCategoryDto> Handle(CreateExpenseCategoryCommand request, CancellationToken ct)
@@ -33,16 +35,13 @@ public class CreateExpenseCategoryCommandHandler : IRequestHandler<CreateExpense
             CompanyId = companyId,
         };
 
-        _context.ExpenseCategories.Add(entity);
-        await _context.SaveChangesAsync(ct);
-
-        return new ExpenseCategoryDto
+        return await _crud.CreateAsync(entity, e => new ExpenseCategoryDto
         {
-            Id = entity.Id,
-            Name = entity.Name,
-            Description = entity.Description,
-            CompanyId = entity.CompanyId,
-        };
+            Id = e.Id,
+            Name = e.Name,
+            Description = e.Description,
+            CompanyId = e.CompanyId,
+        }, ct);
     }
 }
 

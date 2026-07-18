@@ -21,25 +21,27 @@ public record UpdateWarehouseCommand : IRequest<WarehouseDto>
 public class UpdateWarehouseCommandHandler : IRequestHandler<UpdateWarehouseCommand, WarehouseDto>
 {
     private readonly IApplicationDbContext _context;
-    public UpdateWarehouseCommandHandler(IApplicationDbContext context) => _context = context;
+    private readonly ICrudService<Warehouse, WarehouseDto> _crud;
+    public UpdateWarehouseCommandHandler(IApplicationDbContext context, ICrudService<Warehouse, WarehouseDto> crud)
+    {
+        _context = context;
+        _crud = crud;
+    }
 
     public async Task<WarehouseDto> Handle(UpdateWarehouseCommand request, CancellationToken ct)
     {
-        var entity = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
-        if (entity is null) throw new NotFoundException(nameof(Warehouse), request.Id);
-
         if (request.Name is not null)
         {
             var exists = await _context.Warehouses.AnyAsync(x => x.Name == request.Name && x.Id != request.Id, ct);
             if (exists) throw new ConflictException($"Warehouse with name '{request.Name}' already exists.");
-            entity.Name = request.Name;
         }
-        if (request.Location is not null) entity.Location = request.Location;
-        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
 
-        entity.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(ct);
-        return WarehouseDto.FromEntity(entity);
+        return await _crud.UpdateAsync(request.Id, entity =>
+        {
+            if (request.Name is not null) entity.Name = request.Name;
+            if (request.Location is not null) entity.Location = request.Location;
+            if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
+        }, WarehouseDto.FromEntity, ct);
     }
 }
 

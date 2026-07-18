@@ -1,8 +1,7 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
+using OmniBlox.Application.Features.Suppliers.DTOs;
 using OmniBlox.Domain.Entities;
-using OmniBlox.Shared.Exceptions;
 
 namespace OmniBlox.Application.Features.Suppliers.Commands;
 
@@ -13,22 +12,15 @@ public record DeleteSupplierCommand : IRequest
 
 public class DeleteSupplierCommandHandler : IRequestHandler<DeleteSupplierCommand>
 {
-    private readonly IApplicationDbContext _context;
+    private readonly ICrudService<Supplier, SupplierDto> _crud;
 
-    public DeleteSupplierCommandHandler(IApplicationDbContext context)
+    public DeleteSupplierCommandHandler(ICrudService<Supplier, SupplierDto> crud)
     {
-        _context = context;
+        _crud = crud;
     }
 
     public async Task Handle(DeleteSupplierCommand request, CancellationToken ct)
     {
-        var supplier = await _context.Suppliers
-            .AsTracking().FirstOrDefaultAsync(s => s.Id == request.Id, ct);
-
-        if (supplier is null)
-            throw new NotFoundException(nameof(Supplier), request.Id);
-
-        _context.Suppliers.Remove(supplier);
-        await _context.SaveChangesAsync(ct);
+        await _crud.DeleteAsync(request.Id, ct);
     }
 }
