@@ -25,7 +25,7 @@ public class UpdateWarehouseCommandHandler : IRequestHandler<UpdateWarehouseComm
 
     public async Task<WarehouseDto> Handle(UpdateWarehouseCommand request, CancellationToken ct)
     {
-        var entity = await _context.Warehouses.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Warehouse), request.Id);
 
         if (request.Name is not null)

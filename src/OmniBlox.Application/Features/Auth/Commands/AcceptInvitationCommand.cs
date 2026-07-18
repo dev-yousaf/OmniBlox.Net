@@ -27,7 +27,7 @@ public class AcceptInvitationCommandHandler : IRequestHandler<AcceptInvitationCo
     {
         var invitation = await _context.Invitations
             .Include(i => i.User)
-            .FirstOrDefaultAsync(i => i.Token == request.Token, ct);
+            .AsTracking().FirstOrDefaultAsync(i => i.Token == request.Token, ct);
 
         if (invitation is null)
             throw new NotFoundException(nameof(Invitation), request.Token);

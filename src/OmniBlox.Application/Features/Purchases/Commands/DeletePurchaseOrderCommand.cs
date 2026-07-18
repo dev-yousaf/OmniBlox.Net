@@ -33,7 +33,7 @@ public class DeletePurchaseOrderCommandHandler : IRequestHandler<DeletePurchaseO
     {
         var order = await _context.PurchaseOrders
             .Include(o => o.Items).ThenInclude(i => i.Product)
-            .FirstOrDefaultAsync(o => o.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(o => o.Id == request.Id, ct);
         if (order is null) throw new NotFoundException(nameof(PurchaseOrder), request.Id);
 
         if (order.Status == "COMPLETED" && order.WarehouseId.HasValue)

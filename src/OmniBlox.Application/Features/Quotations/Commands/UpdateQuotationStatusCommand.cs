@@ -28,7 +28,7 @@ public class UpdateQuotationStatusCommandHandler : IRequestHandler<UpdateQuotati
         var quotation = await _context.Quotations
             .Include(q => q.Customer)
             .Include(q => q.Items).ThenInclude(i => i.Product)
-            .FirstOrDefaultAsync(q => q.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(q => q.Id == request.Id, ct);
 
         if (quotation is null)
             throw new NotFoundException(nameof(Quotation), request.Id);

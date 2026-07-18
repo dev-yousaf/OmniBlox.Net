@@ -34,7 +34,7 @@ public class UpdateStockCommandHandler : IRequestHandler<UpdateStockCommand, Pro
 
     public async Task<ProductDto> Handle(UpdateStockCommand request, CancellationToken ct)
     {
-        var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == request.Id, ct);
+        var product = await _context.Products.AsTracking().FirstOrDefaultAsync(p => p.Id == request.Id, ct);
         if (product is null) throw new NotFoundException(nameof(Product), request.Id);
 
         var warehouseId = request.WarehouseId;

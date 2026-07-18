@@ -18,7 +18,7 @@ public class DeleteWarrantyCommandHandler : IRequestHandler<DeleteWarrantyComman
 
     public async Task Handle(DeleteWarrantyCommand request, CancellationToken ct)
     {
-        var entity = await _context.Warranties.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.Warranties.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Warranty), request.Id);
         _context.Warranties.Remove(entity);
         await _context.SaveChangesAsync(ct);

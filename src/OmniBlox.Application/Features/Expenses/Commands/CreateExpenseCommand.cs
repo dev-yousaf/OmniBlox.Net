@@ -35,7 +35,7 @@ public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand,
 
     public async Task<ExpenseDto> Handle(CreateExpenseCommand request, CancellationToken ct)
     {
-        var category = await _context.ExpenseCategories.FirstOrDefaultAsync(c => c.Id == request.CategoryId, ct);
+        var category = await _context.ExpenseCategories.AsTracking().FirstOrDefaultAsync(c => c.Id == request.CategoryId, ct);
         if (category is null) throw new NotFoundException(nameof(ExpenseCategory), request.CategoryId);
 
         var entity = new Expense
@@ -59,7 +59,7 @@ public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand,
         var created = await _context.Expenses
             .Include(e => e.Category)
             .Include(e => e.User)
-            .FirstAsync(e => e.Id == entity.Id, ct);
+            .AsTracking().FirstAsync(e => e.Id == entity.Id, ct);
 
         return MapToDto(created);
     }

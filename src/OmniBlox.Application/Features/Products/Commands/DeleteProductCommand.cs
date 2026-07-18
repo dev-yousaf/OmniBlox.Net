@@ -23,19 +23,19 @@ public class DeleteProductCommandHandler : IRequestHandler<DeleteProductCommand>
     public async Task Handle(DeleteProductCommand request, CancellationToken ct)
     {
         var product = await _context.Products
-            .FirstOrDefaultAsync(p => p.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(p => p.Id == request.Id, ct);
 
         if (product is null)
             throw new NotFoundException(nameof(Product), request.Id);
 
         var stockMovements = await _context.StockMovements
             .Where(x => x.ProductId == request.Id)
-            .ToListAsync(ct);
+            .AsTracking().ToListAsync(ct);
         _context.StockMovements.RemoveRange(stockMovements);
 
         var inventories = await _context.Inventories
             .Where(x => x.ProductId == request.Id)
-            .ToListAsync(ct);
+            .AsTracking().ToListAsync(ct);
         _context.Inventories.RemoveRange(inventories);
 
         _context.Products.Remove(product);

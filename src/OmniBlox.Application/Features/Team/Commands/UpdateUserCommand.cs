@@ -35,7 +35,7 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, TeamU
             throw new UnauthorizedException("Only owners and admins can update users.");
 
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Id == request.Id && u.CompanyId == _currentUser.CompanyId, ct);
+            .AsTracking().FirstOrDefaultAsync(u => u.Id == request.Id && u.CompanyId == _currentUser.CompanyId, ct);
 
         if (user is null)
             throw new NotFoundException(nameof(User), request.Id);

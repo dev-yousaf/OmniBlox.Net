@@ -18,7 +18,7 @@ public class DeleteBrandCommandHandler : IRequestHandler<DeleteBrandCommand>
 
     public async Task Handle(DeleteBrandCommand request, CancellationToken ct)
     {
-        var entity = await _context.Brands.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.Brands.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
         _context.Brands.Remove(entity);
         await _context.SaveChangesAsync(ct);

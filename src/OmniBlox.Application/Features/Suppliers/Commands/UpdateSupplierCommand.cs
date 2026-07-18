@@ -29,7 +29,7 @@ public class UpdateSupplierCommandHandler : IRequestHandler<UpdateSupplierComman
     public async Task<SupplierDto> Handle(UpdateSupplierCommand request, CancellationToken ct)
     {
         var supplier = await _context.Suppliers
-            .FirstOrDefaultAsync(s => s.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(s => s.Id == request.Id, ct);
 
         if (supplier is null)
             throw new NotFoundException(nameof(Supplier), request.Id);

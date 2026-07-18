@@ -35,7 +35,7 @@ public class DeleteSalesReturnCommandHandler : IRequestHandler<DeleteSalesReturn
             .Include(r => r.Items)
             .Include(r => r.Sale)
                 .ThenInclude(s => s!.Items)
-            .FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
 
         if (salesReturn is null)
             throw new NotFoundException(nameof(SalesReturn), request.Id);
@@ -45,7 +45,7 @@ public class DeleteSalesReturnCommandHandler : IRequestHandler<DeleteSalesReturn
             foreach (var item in salesReturn.Items)
             {
                 var inventory = await _context.Inventories
-                    .FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == salesReturn.WarehouseId, ct);
+                    .AsTracking().FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == salesReturn.WarehouseId, ct);
 
                 var availableQty = inventory?.Quantity ?? 0;
                 if (item.Quantity > availableQty)

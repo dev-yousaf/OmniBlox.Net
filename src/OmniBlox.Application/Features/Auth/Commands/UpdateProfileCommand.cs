@@ -31,7 +31,7 @@ public class UpdateProfileCommandHandler : IRequestHandler<UpdateProfileCommand,
     {
         var user = await _context.Users
             .Include(u => u.Company)
-            .FirstOrDefaultAsync(u => u.Id == _currentUser.UserId, ct);
+            .AsTracking().FirstOrDefaultAsync(u => u.Id == _currentUser.UserId, ct);
 
         if (user is null)
             throw new NotFoundException("User", _currentUser.UserId);

@@ -33,7 +33,7 @@ public class DeleteSaleCommandHandler : IRequestHandler<DeleteSaleCommand>
     {
         var sale = await _context.Sales
             .Include(s => s.Items)
-            .FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
+            .AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
 
         if (sale is null)
             throw new NotFoundException(nameof(Sale), request.Id);

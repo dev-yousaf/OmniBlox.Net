@@ -28,7 +28,7 @@ public class UpdateExpenseStatusCommandHandler : IRequestHandler<UpdateExpenseSt
         var entity = await _context.Expenses
             .Include(e => e.Category)
             .Include(e => e.User)
-            .FirstOrDefaultAsync(e => e.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(e => e.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Expense), request.Id);
 
         entity.Status = request.Status;

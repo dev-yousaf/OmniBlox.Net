@@ -27,7 +27,7 @@ public class UpdateUnitCommandHandler : IRequestHandler<UpdateUnitCommand, UnitD
 
     public async Task<UnitDto> Handle(UpdateUnitCommand request, CancellationToken ct)
     {
-        var entity = await _context.Units.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.Units.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Domain.Entities.Unit), request.Id);
 
         if (request.Name is not null) entity.Name = request.Name;

@@ -29,7 +29,7 @@ public class UpdateSubCategoryCommandHandler : IRequestHandler<UpdateSubCategory
 
     public async Task<SubCategoryDto> Handle(UpdateSubCategoryCommand request, CancellationToken ct)
     {
-        var entity = await _context.SubCategories.Include(x => x.Category).FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.SubCategories.Include(x => x.Category).AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(SubCategory), request.Id);
 
         if (request.Name is not null) entity.Name = request.Name;

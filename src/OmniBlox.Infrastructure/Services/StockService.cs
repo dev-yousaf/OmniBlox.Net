@@ -19,7 +19,7 @@ public class StockService : IStockService
         var delta = GetDelta(args.MovementType, args.Quantity);
 
         var inventory = await _context.Inventories
-            .FirstOrDefaultAsync(i => i.ProductId == args.ProductId && i.WarehouseId == args.WarehouseId, ct);
+            .AsTracking().FirstOrDefaultAsync(i => i.ProductId == args.ProductId && i.WarehouseId == args.WarehouseId, ct);
 
         int oldQty;
         if (inventory is null)
@@ -61,7 +61,7 @@ public class StockService : IStockService
         _context.StockMovements.Add(movement);
 
         // Update product total stock in lockstep — delta is the net change for this product+warehouse
-        var product = await _context.Products.FirstAsync(p => p.Id == args.ProductId, ct);
+        var product = await _context.Products.AsTracking().FirstAsync(p => p.Id == args.ProductId, ct);
         product.Stock += delta;
         product.UpdatedAt = DateTime.UtcNow;
 
@@ -85,7 +85,7 @@ public class StockService : IStockService
         var dbTotal = await _context.Inventories
             .Where(i => i.ProductId == args.ProductId)
             .SumAsync(i => (int?)i.Quantity ?? 0, ct);
-        var product = await _context.Products.FirstAsync(p => p.Id == args.ProductId, ct);
+        var product = await _context.Products.AsTracking().FirstAsync(p => p.Id == args.ProductId, ct);
         product.Stock = dbTotal;
         product.UpdatedAt = DateTime.UtcNow;
 
@@ -98,7 +98,7 @@ public class StockService : IStockService
         bool skipProductUpdate, CancellationToken ct)
     {
         var inventory = await _context.Inventories
-            .FirstOrDefaultAsync(i => i.ProductId == productId && i.WarehouseId == warehouseId, ct);
+            .AsTracking().FirstOrDefaultAsync(i => i.ProductId == productId && i.WarehouseId == warehouseId, ct);
 
         if (inventory is null)
         {
@@ -139,7 +139,7 @@ public class StockService : IStockService
 
         if (!skipProductUpdate)
         {
-            var product = await _context.Products.FirstAsync(p => p.Id == productId, ct);
+            var product = await _context.Products.AsTracking().FirstAsync(p => p.Id == productId, ct);
             product.Stock += delta;
             product.UpdatedAt = DateTime.UtcNow;
         }

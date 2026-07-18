@@ -36,13 +36,13 @@ public class BackfillInventoryRecordsCommandHandler : IRequestHandler<BackfillIn
         // Get all existing inventory records
         var inventories = await _context.Inventories
             .Include(i => i.Product)
-            .ToListAsync(ct);
+            .AsTracking().ToListAsync(ct);
 
         // Get existing stock movement product+warehouse pairs to avoid duplicates
         var existingMovementPairs = await _context.StockMovements
             .Select(m => new { m.ProductId, m.WarehouseId })
             .Distinct()
-            .ToListAsync(ct);
+            .AsTracking().ToListAsync(ct);
 
         var existingSet = existingMovementPairs
             .Select(x => (x.ProductId, x.WarehouseId))
@@ -74,11 +74,11 @@ public class BackfillInventoryRecordsCommandHandler : IRequestHandler<BackfillIn
         var productIdsWithInventory = inventories.Select(i => i.ProductId).ToHashSet();
         var productsWithoutInventory = await _context.Products
             .Where(p => !productIdsWithInventory.Contains(p.Id) && p.Stock > 0)
-            .ToListAsync(ct);
+            .AsTracking().ToListAsync(ct);
 
         var defaultWarehouse = await _context.Warehouses
             .Where(w => w.CompanyId == _currentUser.CompanyId)
-            .FirstOrDefaultAsync(ct);
+            .AsTracking().FirstOrDefaultAsync(ct);
 
         if (defaultWarehouse is not null)
         {
@@ -109,7 +109,7 @@ public class BackfillInventoryRecordsCommandHandler : IRequestHandler<BackfillIn
         }
 
         // Reconcile Product.Stock against sum of Inventory.Quantity
-        var allProducts = await _context.Products.ToListAsync(ct);
+        var allProducts = await _context.Products.AsTracking().ToListAsync(ct);
         var stockSums = await _context.Inventories
             .GroupBy(i => i.ProductId)
             .Select(g => new { ProductId = g.Key, Total = g.Sum(i => i.Quantity) })

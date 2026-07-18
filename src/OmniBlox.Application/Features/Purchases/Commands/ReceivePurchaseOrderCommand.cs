@@ -37,13 +37,13 @@ public class ReceivePurchaseOrderCommandHandler : IRequestHandler<ReceivePurchas
             .Include(o => o.Items).ThenInclude(i => i.Product)
             .Include(o => o.Supplier)
             .Include(o => o.Warehouse)
-            .FirstOrDefaultAsync(o => o.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(o => o.Id == request.Id, ct);
         if (order is null) throw new NotFoundException(nameof(PurchaseOrder), request.Id);
 
         if (order.Status == "COMPLETED")
             throw new InvalidOperationException("Purchase order is already completed.");
 
-        var warehouse = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == request.WarehouseId, ct);
+        var warehouse = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(w => w.Id == request.WarehouseId, ct);
         if (warehouse is null) throw new NotFoundException(nameof(Warehouse), request.WarehouseId);
 
         order.WarehouseId = request.WarehouseId;
@@ -70,7 +70,7 @@ public class ReceivePurchaseOrderCommandHandler : IRequestHandler<ReceivePurchas
             .Include(o => o.Supplier)
             .Include(o => o.Warehouse)
             .Include(o => o.Items).ThenInclude(i => i.Product)
-            .FirstAsync(o => o.Id == order.Id, ct);
+            .AsTracking().FirstAsync(o => o.Id == order.Id, ct);
 
         var subtotal = updatedOrder.Items.Sum(i => i.Quantity * i.UnitCost);
         var returnedValue = updatedOrder.Items.Sum(i => i.ReturnedQuantity * i.UnitCost);

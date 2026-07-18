@@ -33,7 +33,7 @@ public class DeleteUserCommandHandler : IRequestHandler<DeleteUserCommand>
             throw new ConflictException("You cannot delete yourself.");
 
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Id == request.Id && u.CompanyId == _currentUser.CompanyId, ct);
+            .AsTracking().FirstOrDefaultAsync(u => u.Id == request.Id && u.CompanyId == _currentUser.CompanyId, ct);
 
         if (user is null)
             throw new NotFoundException(nameof(User), request.Id);
@@ -46,7 +46,7 @@ public class DeleteUserCommandHandler : IRequestHandler<DeleteUserCommand>
 
         var invitations = await _context.Invitations
             .Where(i => i.UserId == request.Id)
-            .ToListAsync(ct);
+            .AsTracking().ToListAsync(ct);
 
         _context.Invitations.RemoveRange(invitations);
         _context.Users.Remove(user);

@@ -33,7 +33,7 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             throw new UnauthorizedException("Only owners and admins can change passwords.");
 
         var caller = await _context.Users
-            .FirstOrDefaultAsync(u => u.Id == _currentUser.UserId, ct);
+            .AsTracking().FirstOrDefaultAsync(u => u.Id == _currentUser.UserId, ct);
 
         if (caller is null)
             throw new UnauthorizedException("Caller not found.");
@@ -42,7 +42,7 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             throw new UnauthorizedException("Current password is incorrect.");
 
         var target = await _context.Users
-            .FirstOrDefaultAsync(u => u.Id == request.Id && u.CompanyId == _currentUser.CompanyId, ct);
+            .AsTracking().FirstOrDefaultAsync(u => u.Id == request.Id && u.CompanyId == _currentUser.CompanyId, ct);
 
         if (target is null)
             throw new NotFoundException(nameof(User), request.Id);

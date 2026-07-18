@@ -37,8 +37,8 @@ public class TransferStockCommandHandler : IRequestHandler<TransferStockCommand,
         if (request.FromWarehouseId == request.ToWarehouseId)
             throw new InvalidOperationException("Source and destination warehouses must be different.");
 
-        var fromWh = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == request.FromWarehouseId, ct);
-        var toWh = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == request.ToWarehouseId, ct);
+        var fromWh = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(w => w.Id == request.FromWarehouseId, ct);
+        var toWh = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(w => w.Id == request.ToWarehouseId, ct);
 
         var transferRefId = Guid.NewGuid();
         var (outMovement, inMovement) = await _stockService.RecordTransferAsync(new RecordTransferArgs
@@ -54,7 +54,7 @@ public class TransferStockCommandHandler : IRequestHandler<TransferStockCommand,
 
         await _context.SaveChangesAsync(ct);
 
-        var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == request.ProductId, ct);
+        var product = await _context.Products.AsTracking().FirstOrDefaultAsync(p => p.Id == request.ProductId, ct);
 
         return new StockTransferDto
         {

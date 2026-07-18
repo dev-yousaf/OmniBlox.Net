@@ -34,7 +34,7 @@ public class BulkDeleteBrandsCommandHandler : IRequestHandler<BulkDeleteBrandsCo
 
         foreach (var id in request.Ids)
         {
-            var entity = await _context.Brands.FirstOrDefaultAsync(x => x.Id == id, ct);
+            var entity = await _context.Brands.AsTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
             _context.Brands.Remove(entity);
             deleted.Add(id);

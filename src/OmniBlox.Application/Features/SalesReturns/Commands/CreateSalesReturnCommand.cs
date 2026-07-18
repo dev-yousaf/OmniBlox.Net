@@ -29,12 +29,12 @@ public class CreateSalesReturnCommandHandler : IRequestHandler<CreateSalesReturn
 
     public async Task<SalesReturnDetailDto> Handle(CreateSalesReturnCommand request, CancellationToken ct)
     {
-        var warehouse = await _context.Warehouses.FirstOrDefaultAsync(x => x.Id == request.WarehouseId, ct);
+        var warehouse = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(x => x.Id == request.WarehouseId, ct);
         if (warehouse is null)
             throw new NotFoundException(nameof(Warehouse), request.WarehouseId);
 
         var productIds = request.Items.Select(i => i.ProductId).ToList();
-        var products = await _context.Products.Where(p => productIds.Contains(p.Id)).ToListAsync(ct);
+        var products = await _context.Products.Where(p => productIds.Contains(p.Id)).AsTracking().ToListAsync(ct);
         if (products.Count != productIds.Count)
         {
             var missing = productIds.Except(products.Select(p => p.Id)).ToList();
@@ -46,7 +46,7 @@ public class CreateSalesReturnCommandHandler : IRequestHandler<CreateSalesReturn
         {
             sale = await _context.Sales
                 .Include(s => s.Items)
-                .FirstOrDefaultAsync(x => x.Id == request.SaleId.Value, ct);
+                .AsTracking().FirstOrDefaultAsync(x => x.Id == request.SaleId.Value, ct);
 
             if (sale is null)
                 throw new NotFoundException(nameof(Sale), request.SaleId.Value);
@@ -96,7 +96,7 @@ public class CreateSalesReturnCommandHandler : IRequestHandler<CreateSalesReturn
             .Include(r => r.Sale)
             .Include(r => r.Items)
                 .ThenInclude(i => i.Product)
-            .FirstAsync(x => x.Id == salesReturn.Id, ct);
+            .AsTracking().FirstAsync(x => x.Id == salesReturn.Id, ct);
 
         return SalesReturnDetailDto.FromEntity(result);
     }

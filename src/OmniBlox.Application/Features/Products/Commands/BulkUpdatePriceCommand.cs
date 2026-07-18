@@ -26,7 +26,7 @@ public class BulkUpdatePriceCommandHandler : IRequestHandler<BulkUpdatePriceComm
     {
         foreach (var item in request.Items)
         {
-            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.Id, ct);
+            var product = await _context.Products.AsTracking().FirstOrDefaultAsync(p => p.Id == item.Id, ct);
             if (product is null) throw new NotFoundException(nameof(Domain.Entities.Product), item.Id);
 
             product.SalePrice = item.SalePrice;

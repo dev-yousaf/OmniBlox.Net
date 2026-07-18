@@ -33,7 +33,7 @@ public class UpdateQuotationCommandHandler : IRequestHandler<UpdateQuotationComm
     {
         var quotation = await _context.Quotations
             .Include(q => q.Items)
-            .FirstOrDefaultAsync(q => q.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(q => q.Id == request.Id, ct);
 
         if (quotation is null)
             throw new NotFoundException(nameof(Quotation), request.Id);
@@ -83,7 +83,7 @@ public class UpdateQuotationCommandHandler : IRequestHandler<UpdateQuotationComm
         quotation = await _context.Quotations
             .Include(q => q.Customer)
             .Include(q => q.Items).ThenInclude(i => i.Product)
-            .FirstAsync(q => q.Id == quotation.Id, ct);
+            .AsTracking().FirstAsync(q => q.Id == quotation.Id, ct);
 
         return QuotationDetailDto.FromEntity(quotation);
     }

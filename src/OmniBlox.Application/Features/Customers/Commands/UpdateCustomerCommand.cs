@@ -29,7 +29,7 @@ public class UpdateCustomerCommandHandler : IRequestHandler<UpdateCustomerComman
     public async Task<CustomerDto> Handle(UpdateCustomerCommand request, CancellationToken ct)
     {
         var customer = await _context.Customers
-            .FirstOrDefaultAsync(c => c.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(c => c.Id == request.Id, ct);
 
         if (customer is null)
             throw new NotFoundException(nameof(Customer), request.Id);

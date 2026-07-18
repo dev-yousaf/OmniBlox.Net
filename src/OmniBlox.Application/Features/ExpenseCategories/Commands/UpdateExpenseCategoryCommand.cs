@@ -22,7 +22,7 @@ public class UpdateExpenseCategoryCommandHandler : IRequestHandler<UpdateExpense
 
     public async Task<ExpenseCategoryDto> Handle(UpdateExpenseCategoryCommand request, CancellationToken ct)
     {
-        var entity = await _context.ExpenseCategories.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.ExpenseCategories.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(ExpenseCategory), request.Id);
 
         if (request.Name is not null) entity.Name = request.Name;

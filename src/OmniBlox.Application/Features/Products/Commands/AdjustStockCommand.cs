@@ -51,13 +51,13 @@ public class AdjustStockCommandHandler : IRequestHandler<AdjustStockCommand, Adj
 
         foreach (var item in request.Items)
         {
-            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
+            var product = await _context.Products.AsTracking().FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
             if (product is null) continue;
 
             if (!item.WarehouseId.HasValue) continue;
 
             var inventory = await _context.Inventories
-                .FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == item.WarehouseId.Value, ct);
+                .AsTracking().FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == item.WarehouseId.Value, ct);
 
             var currentQty = inventory?.Quantity ?? 0;
             var difference = item.NewQuantity - currentQty;

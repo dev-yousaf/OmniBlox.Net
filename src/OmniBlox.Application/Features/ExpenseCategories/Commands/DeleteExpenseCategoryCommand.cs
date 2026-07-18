@@ -18,7 +18,7 @@ public class DeleteExpenseCategoryCommandHandler : IRequestHandler<DeleteExpense
 
     public async Task Handle(DeleteExpenseCategoryCommand request, CancellationToken ct)
     {
-        var entity = await _context.ExpenseCategories.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.ExpenseCategories.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(ExpenseCategory), request.Id);
         _context.ExpenseCategories.Remove(entity);
         await _context.SaveChangesAsync(ct);

@@ -23,7 +23,7 @@ public class DeleteSupplierCommandHandler : IRequestHandler<DeleteSupplierComman
     public async Task Handle(DeleteSupplierCommand request, CancellationToken ct)
     {
         var supplier = await _context.Suppliers
-            .FirstOrDefaultAsync(s => s.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(s => s.Id == request.Id, ct);
 
         if (supplier is null)
             throw new NotFoundException(nameof(Supplier), request.Id);

@@ -24,7 +24,7 @@ public class DeleteExpenseCommandHandler : IRequestHandler<DeleteExpenseCommand>
     {
         var entity = await _context.Expenses
             .Include(e => e.Attachments)
-            .FirstOrDefaultAsync(e => e.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(e => e.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Expense), request.Id);
 
         _context.Expenses.Remove(entity);

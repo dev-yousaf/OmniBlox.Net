@@ -34,14 +34,14 @@ public class UpdateSalesReturnCommandHandler : IRequestHandler<UpdateSalesReturn
             .Include(r => r.Items)
             .Include(r => r.Warehouse)
             .Include(r => r.Sale)
-            .FirstOrDefaultAsync(r => r.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(r => r.Id == request.Id, ct);
         if (returnEntity is null) throw new NotFoundException(nameof(SalesReturn), request.Id);
 
-        var warehouse = await _context.Warehouses.FirstOrDefaultAsync(x => x.Id == request.WarehouseId, ct);
+        var warehouse = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(x => x.Id == request.WarehouseId, ct);
         if (warehouse is null) throw new NotFoundException(nameof(Warehouse), request.WarehouseId);
 
         var productIds = request.Items.Select(i => i.ProductId).ToList();
-        var products = await _context.Products.Where(p => productIds.Contains(p.Id)).ToListAsync(ct);
+        var products = await _context.Products.Where(p => productIds.Contains(p.Id)).AsTracking().ToListAsync(ct);
         if (products.Count != productIds.Count)
         {
             var missing = productIds.Except(products.Select(p => p.Id)).ToList();
@@ -53,7 +53,7 @@ public class UpdateSalesReturnCommandHandler : IRequestHandler<UpdateSalesReturn
         {
             sale = await _context.Sales
                 .Include(s => s.Items)
-                .FirstOrDefaultAsync(x => x.Id == request.SaleId.Value, ct);
+                .AsTracking().FirstOrDefaultAsync(x => x.Id == request.SaleId.Value, ct);
             if (sale is null) throw new NotFoundException(nameof(Sale), request.SaleId.Value);
 
             foreach (var item in request.Items)
@@ -95,7 +95,7 @@ public class UpdateSalesReturnCommandHandler : IRequestHandler<UpdateSalesReturn
             .Include(r => r.Warehouse)
             .Include(r => r.Sale)
             .Include(r => r.Items).ThenInclude(i => i.Product)
-            .FirstAsync(x => x.Id == returnEntity.Id, ct);
+            .AsTracking().FirstAsync(x => x.Id == returnEntity.Id, ct);
 
         return SalesReturnDetailDto.FromEntity(result);
     }

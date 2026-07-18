@@ -50,7 +50,7 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
                 .ThenInclude(i => i.Product)
             .Include(s => s.Customer)
             .Include(s => s.Warehouse)
-            .FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
+            .AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
 
         if (sale is null)
             throw new NotFoundException(nameof(Sale), request.Id);
@@ -58,18 +58,18 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
         if (request.WarehouseId.HasValue)
         {
             var warehouse = await _context.Warehouses
-                .FirstOrDefaultAsync(x => x.Id == request.WarehouseId.Value && x.CompanyId == _currentUser.CompanyId, ct);
+                .AsTracking().FirstOrDefaultAsync(x => x.Id == request.WarehouseId.Value && x.CompanyId == _currentUser.CompanyId, ct);
             if (warehouse is null)
                 throw new NotFoundException(nameof(Warehouse), request.WarehouseId.Value);
         }
 
         var customer = await _context.Customers
-            .FirstOrDefaultAsync(x => x.Id == request.CustomerId && x.CompanyId == _currentUser.CompanyId, ct);
+            .AsTracking().FirstOrDefaultAsync(x => x.Id == request.CustomerId && x.CompanyId == _currentUser.CompanyId, ct);
         if (customer is null)
             throw new NotFoundException(nameof(Customer), request.CustomerId);
 
         var productIds = request.Items.Select(i => i.ProductId).ToList();
-        var products = await _context.Products.Where(p => productIds.Contains(p.Id)).ToListAsync(ct);
+        var products = await _context.Products.Where(p => productIds.Contains(p.Id)).AsTracking().ToListAsync(ct);
         if (products.Count != productIds.Count)
         {
             var missing = productIds.Except(products.Select(p => p.Id)).ToList();
@@ -120,7 +120,7 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
 
         var oldSaleItems = await _context.SaleItems
             .Where(si => si.SaleId == sale.Id)
-            .ToListAsync(ct);
+            .AsTracking().ToListAsync(ct);
         _context.SaleItems.RemoveRange(oldSaleItems);
         sale.Items.Clear();
 
@@ -146,7 +146,7 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
                 foreach (var item in sale.Items)
                 {
                     var inventory = await _context.Inventories
-                        .FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == decrementWh.Value, ct);
+                        .AsTracking().FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == decrementWh.Value, ct);
                     var availableQty = inventory?.Quantity ?? 0;
                     if (item.Quantity > availableQty)
                     {
@@ -183,7 +183,7 @@ public class UpdateSaleCommandHandler : IRequestHandler<UpdateSaleCommand, SaleD
             .Include(s => s.Warehouse)
             .Include(s => s.Items)
                 .ThenInclude(i => i.Product)
-            .FirstAsync(x => x.Id == sale.Id, ct);
+            .AsTracking().FirstAsync(x => x.Id == sale.Id, ct);
 
         return SaleDetailDto.FromEntity(result);
     }

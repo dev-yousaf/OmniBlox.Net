@@ -34,7 +34,7 @@ public class DeletePurchaseReturnCommandHandler : IRequestHandler<DeletePurchase
         var returnEntity = await _context.PurchaseReturns
             .Include(r => r.Items).ThenInclude(i => i.Product)
             .Include(r => r.PurchaseOrder)
-            .FirstOrDefaultAsync(r => r.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(r => r.Id == request.Id, ct);
         if (returnEntity is null) throw new NotFoundException(nameof(PurchaseReturn), request.Id);
 
         if (returnEntity.Status == "COMPLETED")
@@ -55,7 +55,7 @@ public class DeletePurchaseReturnCommandHandler : IRequestHandler<DeletePurchase
                 if (item.PurchaseOrderItemId.HasValue)
                 {
                     var poi = await _context.PurchaseOrderItems
-                        .FirstOrDefaultAsync(i => i.Id == item.PurchaseOrderItemId.Value, ct);
+                        .AsTracking().FirstOrDefaultAsync(i => i.Id == item.PurchaseOrderItemId.Value, ct);
                     if (poi is not null)
                     {
                         poi.ReturnedQuantity -= item.Quantity;

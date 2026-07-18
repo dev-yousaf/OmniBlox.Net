@@ -31,17 +31,17 @@ public class CreatePurchaseReturnCommandHandler : IRequestHandler<CreatePurchase
 
     public async Task<PurchaseReturnDetailDto> Handle(CreatePurchaseReturnCommand request, CancellationToken ct)
     {
-        var warehouse = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == request.WarehouseId, ct);
+        var warehouse = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(w => w.Id == request.WarehouseId, ct);
         if (warehouse is null) throw new NotFoundException(nameof(Warehouse), request.WarehouseId);
 
-        var supplier = await _context.Suppliers.FirstOrDefaultAsync(s => s.Id == request.SupplierId, ct);
+        var supplier = await _context.Suppliers.AsTracking().FirstOrDefaultAsync(s => s.Id == request.SupplierId, ct);
         if (supplier is null) throw new NotFoundException(nameof(Supplier), request.SupplierId);
 
         if (request.PurchaseOrderId.HasValue)
         {
             var po = await _context.PurchaseOrders
                 .Include(o => o.Items)
-                .FirstOrDefaultAsync(o => o.Id == request.PurchaseOrderId.Value, ct);
+                .AsTracking().FirstOrDefaultAsync(o => o.Id == request.PurchaseOrderId.Value, ct);
             if (po is null) throw new NotFoundException(nameof(PurchaseOrder), request.PurchaseOrderId.Value);
 
             foreach (var item in request.Items)
@@ -61,11 +61,11 @@ public class CreatePurchaseReturnCommandHandler : IRequestHandler<CreatePurchase
 
         foreach (var item in request.Items)
         {
-            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
+            var product = await _context.Products.AsTracking().FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
             if (product is null) throw new NotFoundException(nameof(Product), item.ProductId);
 
             var inventory = await _context.Inventories
-                .FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == request.WarehouseId, ct);
+                .AsTracking().FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == request.WarehouseId, ct);
 
             if (inventory is null || inventory.Quantity < item.Quantity)
                 throw new InvalidOperationException(
@@ -110,7 +110,7 @@ public class CreatePurchaseReturnCommandHandler : IRequestHandler<CreatePurchase
             .Include(r => r.Supplier)
             .Include(r => r.PurchaseOrder)
             .Include(r => r.Items).ThenInclude(i => i.Product)
-            .FirstAsync(r => r.Id == returnEntity.Id, ct);
+            .AsTracking().FirstAsync(r => r.Id == returnEntity.Id, ct);
 
         return MapToDetail(created);
     }

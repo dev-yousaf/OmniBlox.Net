@@ -20,7 +20,7 @@ public class DeleteWarehouseCommandHandler : IRequestHandler<DeleteWarehouseComm
     {
         var entity = await _context.Warehouses
             .Include(w => w.Inventories)
-            .FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Warehouse), request.Id);
         if (entity.Inventories.Count > 0)
             throw new ConflictException("Cannot delete warehouse with existing inventory. Transfer or remove stock first.");

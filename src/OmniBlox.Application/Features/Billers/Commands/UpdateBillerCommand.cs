@@ -27,7 +27,7 @@ public class UpdateBillerCommandHandler : IRequestHandler<UpdateBillerCommand, B
 
     public async Task<BillerDto> Handle(UpdateBillerCommand request, CancellationToken ct)
     {
-        var entity = await _context.Billers.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.Billers.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Biller), request.Id);
 
         if (request.Name is not null) entity.Name = request.Name;

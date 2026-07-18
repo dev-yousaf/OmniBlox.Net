@@ -52,7 +52,7 @@ public class ConvertQuotationToSaleCommandHandler : IRequestHandler<ConvertQuota
         var quotation = await _context.Quotations
             .Include(q => q.Items).ThenInclude(i => i.Product)
             .Include(q => q.Customer)
-            .FirstOrDefaultAsync(q => q.Id == request.QuotationId, ct);
+            .AsTracking().FirstOrDefaultAsync(q => q.Id == request.QuotationId, ct);
 
         if (quotation is null)
             throw new NotFoundException(nameof(Quotation), request.QuotationId);
@@ -96,7 +96,7 @@ public class ConvertQuotationToSaleCommandHandler : IRequestHandler<ConvertQuota
             foreach (var item in quotation.Items)
             {
                 var inventory = await _context.Inventories
-                    .FirstOrDefaultAsync(i =>
+                    .AsTracking().FirstOrDefaultAsync(i =>
                         i.ProductId == item.ProductId &&
                         i.WarehouseId == request.WarehouseId.Value, ct);
 

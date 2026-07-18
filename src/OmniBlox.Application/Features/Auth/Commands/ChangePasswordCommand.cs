@@ -26,7 +26,7 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
     public async Task Handle(ChangePasswordCommand request, CancellationToken ct)
     {
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Id == _currentUser.UserId, ct);
+            .AsTracking().FirstOrDefaultAsync(u => u.Id == _currentUser.UserId, ct);
 
         if (user is null)
             throw new NotFoundException("User", _currentUser.UserId);

@@ -58,15 +58,15 @@ public class CreateStockAdjustmentCommandHandler : IRequestHandler<CreateStockAd
         foreach (var item in request.Items)
         {
             var inventory = await _context.Inventories
-                .FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == item.WarehouseId, ct);
+                .AsTracking().FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == item.WarehouseId, ct);
 
             int previousQty = inventory?.Quantity ?? 0;
             int difference = item.NewQuantity - previousQty;
 
             if (difference == 0)
             {
-                var p0 = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
-                var w0 = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == item.WarehouseId, ct);
+                var p0 = await _context.Products.AsTracking().FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
+                var w0 = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(w => w.Id == item.WarehouseId, ct);
                 items.Add(new StockAdjustmentItemDto
                 {
                     Id = Guid.Empty,
@@ -103,8 +103,8 @@ public class CreateStockAdjustmentCommandHandler : IRequestHandler<CreateStockAd
                 Difference = difference,
             });
 
-            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
-            var warehouse = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == item.WarehouseId, ct);
+            var product = await _context.Products.AsTracking().FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
+            var warehouse = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(w => w.Id == item.WarehouseId, ct);
             items.Add(new StockAdjustmentItemDto
             {
                 Id = Guid.Empty,

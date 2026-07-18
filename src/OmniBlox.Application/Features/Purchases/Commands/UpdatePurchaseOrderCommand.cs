@@ -36,15 +36,15 @@ public class UpdatePurchaseOrderCommandHandler : IRequestHandler<UpdatePurchaseO
             .Include(o => o.Items)
             .Include(o => o.Supplier)
             .Include(o => o.Warehouse)
-            .FirstOrDefaultAsync(o => o.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(o => o.Id == request.Id, ct);
         if (order is null) throw new NotFoundException(nameof(PurchaseOrder), request.Id);
 
-        var supplier = await _context.Suppliers.FirstOrDefaultAsync(s => s.Id == request.SupplierId, ct);
+        var supplier = await _context.Suppliers.AsTracking().FirstOrDefaultAsync(s => s.Id == request.SupplierId, ct);
         if (supplier is null) throw new NotFoundException(nameof(Supplier), request.SupplierId);
 
         if (request.WarehouseId.HasValue)
         {
-            var warehouse = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == request.WarehouseId.Value, ct);
+            var warehouse = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(w => w.Id == request.WarehouseId.Value, ct);
             if (warehouse is null) throw new NotFoundException(nameof(Warehouse), request.WarehouseId.Value);
         }
 
@@ -68,7 +68,7 @@ public class UpdatePurchaseOrderCommandHandler : IRequestHandler<UpdatePurchaseO
 
         foreach (var item in request.Items)
         {
-            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
+            var product = await _context.Products.AsTracking().FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
             if (product is null) throw new NotFoundException(nameof(Product), item.ProductId);
 
             _context.PurchaseOrderItems.Add(new PurchaseOrderItem
@@ -86,7 +86,7 @@ public class UpdatePurchaseOrderCommandHandler : IRequestHandler<UpdatePurchaseO
             .Include(o => o.Supplier)
             .Include(o => o.Warehouse)
             .Include(o => o.Items).ThenInclude(i => i.Product)
-            .FirstAsync(o => o.Id == order.Id, ct);
+            .AsTracking().FirstAsync(o => o.Id == order.Id, ct);
 
         return MapToDetail(updatedOrder);
     }

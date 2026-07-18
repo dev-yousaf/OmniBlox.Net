@@ -27,7 +27,7 @@ public class UpdateBrandCommandHandler : IRequestHandler<UpdateBrandCommand, Bra
 
     public async Task<BrandDto> Handle(UpdateBrandCommand request, CancellationToken ct)
     {
-        var entity = await _context.Brands.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.Brands.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Brand), request.Id);
 
         if (request.Name is not null) entity.Name = request.Name;

@@ -18,7 +18,7 @@ public class DeleteSubCategoryCommandHandler : IRequestHandler<DeleteSubCategory
 
     public async Task Handle(DeleteSubCategoryCommand request, CancellationToken ct)
     {
-        var entity = await _context.SubCategories.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.SubCategories.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(SubCategory), request.Id);
         _context.SubCategories.Remove(entity);
         await _context.SaveChangesAsync(ct);

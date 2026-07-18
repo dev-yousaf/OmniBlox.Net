@@ -36,12 +36,12 @@ public class UpdateInventoryCommandHandler : IRequestHandler<UpdateInventoryComm
         var inventory = await _context.Inventories
             .Include(i => i.Product)
             .Include(i => i.Warehouse)
-            .FirstOrDefaultAsync(i => i.ProductId == request.ProductId && i.WarehouseId == request.WarehouseId, ct);
+            .AsTracking().FirstOrDefaultAsync(i => i.ProductId == request.ProductId && i.WarehouseId == request.WarehouseId, ct);
 
-        var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == request.ProductId, ct);
+        var product = await _context.Products.AsTracking().FirstOrDefaultAsync(p => p.Id == request.ProductId, ct);
         if (product is null) throw new KeyNotFoundException("Product not found.");
 
-        var warehouse = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == request.WarehouseId, ct);
+        var warehouse = await _context.Warehouses.AsTracking().FirstOrDefaultAsync(w => w.Id == request.WarehouseId, ct);
         if (warehouse is null) throw new KeyNotFoundException("Warehouse not found.");
 
         int previousQty = inventory?.Quantity ?? 0;
@@ -68,7 +68,7 @@ public class UpdateInventoryCommandHandler : IRequestHandler<UpdateInventoryComm
         var updatedInventory = await _context.Inventories
             .Include(i => i.Product)
             .Include(i => i.Warehouse)
-            .FirstAsync(i => i.ProductId == request.ProductId && i.WarehouseId == request.WarehouseId, ct);
+            .AsTracking().FirstAsync(i => i.ProductId == request.ProductId && i.WarehouseId == request.WarehouseId, ct);
 
         return InventoryDto.FromEntity(updatedInventory);
     }

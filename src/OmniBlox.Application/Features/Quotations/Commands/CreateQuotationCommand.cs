@@ -55,7 +55,7 @@ public class CreateQuotationCommandHandler : IRequestHandler<CreateQuotationComm
         foreach (var item in request.Items)
         {
             var product = await _context.Products
-                .FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
+                .AsTracking().FirstOrDefaultAsync(p => p.Id == item.ProductId, ct);
 
             if (product is null)
                 throw new NotFoundException(nameof(Product), item.ProductId);
@@ -90,7 +90,7 @@ public class CreateQuotationCommandHandler : IRequestHandler<CreateQuotationComm
         quotation = await _context.Quotations
             .Include(q => q.Customer)
             .Include(q => q.Items).ThenInclude(i => i.Product)
-            .FirstAsync(q => q.Id == quotation.Id, ct);
+            .AsTracking().FirstAsync(q => q.Id == quotation.Id, ct);
 
         return QuotationDetailDto.FromEntity(quotation);
     }

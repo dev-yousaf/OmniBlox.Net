@@ -37,7 +37,7 @@ public class MarkSalePaidCommandHandler : IRequestHandler<MarkSalePaidCommand, S
                 .ThenInclude(i => i.Product)
             .Include(s => s.Customer)
             .Include(s => s.Warehouse)
-            .FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
+            .AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id && x.CompanyId == _currentUser.CompanyId, ct);
 
         if (sale is null)
             throw new NotFoundException(nameof(Sale), request.Id);
@@ -52,7 +52,7 @@ public class MarkSalePaidCommandHandler : IRequestHandler<MarkSalePaidCommand, S
             foreach (var item in sale.Items)
             {
                 var inventory = await _context.Inventories
-                    .FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == sale.WarehouseId, ct);
+                    .AsTracking().FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == sale.WarehouseId, ct);
 
                 var availableQty = inventory?.Quantity ?? 0;
                 if (item.Quantity > availableQty)
@@ -81,7 +81,7 @@ public class MarkSalePaidCommandHandler : IRequestHandler<MarkSalePaidCommand, S
             .Include(s => s.Warehouse)
             .Include(s => s.Items)
                 .ThenInclude(i => i.Product)
-            .FirstAsync(x => x.Id == sale.Id, ct);
+            .AsTracking().FirstAsync(x => x.Id == sale.Id, ct);
 
         return SaleDetailDto.FromEntity(result);
     }

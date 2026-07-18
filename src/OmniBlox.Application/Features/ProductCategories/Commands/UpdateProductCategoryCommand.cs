@@ -26,7 +26,7 @@ public class UpdateProductCategoryCommandHandler : IRequestHandler<UpdateProduct
 
     public async Task<ProductCategoryDto> Handle(UpdateProductCategoryCommand request, CancellationToken ct)
     {
-        var entity = await _context.ProductCategories.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.ProductCategories.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(ProductCategory), request.Id);
 
         if (request.Name is not null) entity.Name = request.Name;

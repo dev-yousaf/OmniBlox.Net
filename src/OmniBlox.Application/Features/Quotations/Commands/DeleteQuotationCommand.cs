@@ -24,7 +24,7 @@ public class DeleteQuotationCommandHandler : IRequestHandler<DeleteQuotationComm
     {
         var quotation = await _context.Quotations
             .Include(q => q.Items)
-            .FirstOrDefaultAsync(q => q.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(q => q.Id == request.Id, ct);
 
         if (quotation is null)
             throw new NotFoundException(nameof(Quotation), request.Id);

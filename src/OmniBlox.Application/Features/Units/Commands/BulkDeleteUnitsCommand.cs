@@ -33,7 +33,7 @@ public class BulkDeleteUnitsCommandHandler : IRequestHandler<BulkDeleteUnitsComm
         var failed = new List<FailedItem>();
         foreach (var id in request.Ids)
         {
-            var entity = await _context.Units.FirstOrDefaultAsync(x => x.Id == id, ct);
+            var entity = await _context.Units.AsTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
             _context.Units.Remove(entity);
             deleted.Add(id);

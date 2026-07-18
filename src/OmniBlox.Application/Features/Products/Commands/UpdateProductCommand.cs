@@ -49,7 +49,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
     public async Task<ProductDto> Handle(UpdateProductCommand request, CancellationToken ct)
     {
         var product = await _context.Products
-            .FirstOrDefaultAsync(p => p.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(p => p.Id == request.Id, ct);
 
         if (product is null)
             throw new NotFoundException(nameof(Product), request.Id);

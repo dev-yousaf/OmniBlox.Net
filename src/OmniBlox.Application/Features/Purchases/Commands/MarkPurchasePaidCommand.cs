@@ -24,7 +24,7 @@ public class MarkPurchasePaidCommandHandler : IRequestHandler<MarkPurchasePaidCo
             .Include(o => o.Supplier)
             .Include(o => o.Warehouse)
             .Include(o => o.Items).ThenInclude(i => i.Product)
-            .FirstOrDefaultAsync(o => o.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(o => o.Id == request.Id, ct);
         if (order is null) throw new NotFoundException(nameof(PurchaseOrder), request.Id);
 
         order.PaymentStatus = "PAID";

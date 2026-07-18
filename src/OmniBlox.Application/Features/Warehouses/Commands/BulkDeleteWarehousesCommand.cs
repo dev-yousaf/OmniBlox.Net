@@ -23,7 +23,7 @@ public class BulkDeleteWarehousesCommandHandler : IRequestHandler<BulkDeleteWare
 
         foreach (var id in request.Ids)
         {
-            var entity = await _context.Warehouses.Include(w => w.Inventories).FirstOrDefaultAsync(x => x.Id == id, ct);
+            var entity = await _context.Warehouses.Include(w => w.Inventories).AsTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
             if (entity.Inventories.Count > 0) { failed.Add(new FailedItem { Id = id, Error = "Has existing inventory" }); continue; }
             _context.Warehouses.Remove(entity);

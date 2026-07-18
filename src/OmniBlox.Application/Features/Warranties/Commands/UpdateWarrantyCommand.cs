@@ -27,7 +27,7 @@ public class UpdateWarrantyCommandHandler : IRequestHandler<UpdateWarrantyComman
 
     public async Task<WarrantyDto> Handle(UpdateWarrantyCommand request, CancellationToken ct)
     {
-        var entity = await _context.Warranties.FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+        var entity = await _context.Warranties.AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Warranty), request.Id);
 
         if (request.Name is not null) entity.Name = request.Name;

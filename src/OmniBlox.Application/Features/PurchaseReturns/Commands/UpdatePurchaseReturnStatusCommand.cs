@@ -38,7 +38,7 @@ public class UpdatePurchaseReturnStatusCommandHandler : IRequestHandler<UpdatePu
             .Include(r => r.Supplier)
             .Include(r => r.PurchaseOrder)
             .Include(r => r.Items).ThenInclude(i => i.Product)
-            .FirstOrDefaultAsync(r => r.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(r => r.Id == request.Id, ct);
         if (returnEntity is null) throw new NotFoundException(nameof(PurchaseReturn), request.Id);
 
         var oldStatus = returnEntity.Status;
@@ -62,7 +62,7 @@ public class UpdatePurchaseReturnStatusCommandHandler : IRequestHandler<UpdatePu
                 if (item.PurchaseOrderItemId.HasValue)
                 {
                     var poi = await _context.PurchaseOrderItems
-                        .FirstOrDefaultAsync(i => i.Id == item.PurchaseOrderItemId.Value, ct);
+                        .AsTracking().FirstOrDefaultAsync(i => i.Id == item.PurchaseOrderItemId.Value, ct);
                     if (poi is not null)
                     {
                         poi.ReturnedQuantity -= item.Quantity;
@@ -86,7 +86,7 @@ public class UpdatePurchaseReturnStatusCommandHandler : IRequestHandler<UpdatePu
             foreach (var item in returnEntity.Items)
             {
                 var inventory = await _context.Inventories
-                    .FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == returnEntity.WarehouseId, ct);
+                    .AsTracking().FirstOrDefaultAsync(i => i.ProductId == item.ProductId && i.WarehouseId == returnEntity.WarehouseId, ct);
 
                 var availableQty = inventory?.Quantity ?? 0;
                 if (item.Quantity > availableQty)
@@ -109,7 +109,7 @@ public class UpdatePurchaseReturnStatusCommandHandler : IRequestHandler<UpdatePu
                 if (item.PurchaseOrderItemId.HasValue)
                 {
                     var poi = await _context.PurchaseOrderItems
-                        .FirstOrDefaultAsync(i => i.Id == item.PurchaseOrderItemId.Value, ct);
+                        .AsTracking().FirstOrDefaultAsync(i => i.Id == item.PurchaseOrderItemId.Value, ct);
                     if (poi is not null)
                     {
                         poi.ReturnedQuantity += item.Quantity;

@@ -29,7 +29,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
     {
         var user = await _context.Users
             .Include(u => u.Company)
-            .FirstOrDefaultAsync(u => u.Email == request.Email, ct);
+            .AsTracking().FirstOrDefaultAsync(u => u.Email == request.Email, ct);
 
         if (user is null)
             throw new UnauthorizedException("Invalid email or password.");

@@ -39,7 +39,7 @@ public class UpdateSalesReturnStatusCommandHandler : IRequestHandler<UpdateSales
             .Include(r => r.Sale)
                 .ThenInclude(s => s!.Items)
             .Include(r => r.Warehouse)
-            .FirstOrDefaultAsync(x => x.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(x => x.Id == request.Id, ct);
 
         if (salesReturn is null)
             throw new NotFoundException(nameof(SalesReturn), request.Id);
@@ -55,7 +55,7 @@ public class UpdateSalesReturnStatusCommandHandler : IRequestHandler<UpdateSales
             foreach (var item in salesReturn.Items)
             {
                 var inventory = await _context.Inventories
-                    .FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == salesReturn.WarehouseId, ct);
+                    .AsTracking().FirstOrDefaultAsync(x => x.ProductId == item.ProductId && x.WarehouseId == salesReturn.WarehouseId, ct);
 
                 var availableQty = inventory?.Quantity ?? 0;
                 if (item.Quantity > availableQty)
@@ -126,7 +126,7 @@ public class UpdateSalesReturnStatusCommandHandler : IRequestHandler<UpdateSales
             .Include(r => r.Sale)
             .Include(r => r.Items)
                 .ThenInclude(i => i.Product)
-            .FirstAsync(x => x.Id == salesReturn.Id, ct);
+            .AsTracking().FirstAsync(x => x.Id == salesReturn.Id, ct);
 
         return SalesReturnDetailDto.FromEntity(result);
     }

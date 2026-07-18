@@ -33,7 +33,7 @@ public class BulkDeleteWarrantiesCommandHandler : IRequestHandler<BulkDeleteWarr
         var failed = new List<FailedItem>();
         foreach (var id in request.Ids)
         {
-            var entity = await _context.Warranties.FirstOrDefaultAsync(x => x.Id == id, ct);
+            var entity = await _context.Warranties.AsTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
             _context.Warranties.Remove(entity);
             deleted.Add(id);

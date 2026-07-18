@@ -34,7 +34,7 @@ public class UpdateExpenseCommandHandler : IRequestHandler<UpdateExpenseCommand,
         var entity = await _context.Expenses
             .Include(e => e.Category)
             .Include(e => e.User)
-            .FirstOrDefaultAsync(e => e.Id == request.Id, ct);
+            .AsTracking().FirstOrDefaultAsync(e => e.Id == request.Id, ct);
         if (entity is null) throw new NotFoundException(nameof(Expense), request.Id);
 
         if (request.Reference is not null) entity.Reference = request.Reference;
@@ -45,7 +45,7 @@ public class UpdateExpenseCommandHandler : IRequestHandler<UpdateExpenseCommand,
         if (request.PaymentMethod is not null) entity.PaymentMethod = request.PaymentMethod;
         if (request.CategoryId.HasValue)
         {
-            var category = await _context.ExpenseCategories.FirstOrDefaultAsync(c => c.Id == request.CategoryId.Value, ct);
+            var category = await _context.ExpenseCategories.AsTracking().FirstOrDefaultAsync(c => c.Id == request.CategoryId.Value, ct);
             if (category is null) throw new NotFoundException(nameof(ExpenseCategory), request.CategoryId.Value);
             entity.CategoryId = request.CategoryId.Value;
         }

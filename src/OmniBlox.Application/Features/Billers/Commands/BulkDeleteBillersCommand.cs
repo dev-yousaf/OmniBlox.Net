@@ -34,7 +34,7 @@ public class BulkDeleteBillersCommandHandler : IRequestHandler<BulkDeleteBillers
 
         foreach (var id in request.Ids)
         {
-            var entity = await _context.Billers.FirstOrDefaultAsync(x => x.Id == id, ct);
+            var entity = await _context.Billers.AsTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null) { failed.Add(new FailedItem { Id = id, Error = "Not found" }); continue; }
             _context.Billers.Remove(entity);
             deleted.Add(id);
