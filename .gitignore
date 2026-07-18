@@ -374,3 +374,5 @@ client/
 
 # Reference backend (NestJS) — not part of the .NET solution
 server/
+# Zip archives
+*.zip
