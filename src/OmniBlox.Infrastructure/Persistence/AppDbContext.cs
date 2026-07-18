@@ -47,6 +47,9 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<Quotation> Quotations => Set<Quotation>();
     public DbSet<QuotationItem> QuotationItems => Set<QuotationItem>();
     public DbSet<Invitation> Invitations => Set<Invitation>();
+    public DbSet<ExpenseCategory> ExpenseCategories => Set<ExpenseCategory>();
+    public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<ExpenseAttachment> ExpenseAttachments => Set<ExpenseAttachment>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

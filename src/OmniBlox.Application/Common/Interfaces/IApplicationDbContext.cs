@@ -34,5 +34,8 @@ public interface IApplicationDbContext
     DbSet<Quotation> Quotations { get; }
     DbSet<QuotationItem> QuotationItems { get; }
     DbSet<Invitation> Invitations { get; }
+    DbSet<ExpenseCategory> ExpenseCategories { get; }
+    DbSet<Expense> Expenses { get; }
+    DbSet<ExpenseAttachment> ExpenseAttachments { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
