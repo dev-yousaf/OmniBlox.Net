@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Products.DTOs;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Products.Queries;
 
@@ -40,9 +41,8 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Product
         if (!string.IsNullOrWhiteSpace(request.Category))
             query = query.Where(p => p.Category == request.Category);
 
-        if (!string.IsNullOrWhiteSpace(request.Status)
-            && Enum.TryParse<Domain.Enums.ProductStatus>(request.Status, true, out var status))
-            query = query.Where(p => p.Status == status);
+        if (!string.IsNullOrWhiteSpace(request.Status))
+            query = query.Where(p => p.Status == request.Status.ToEnumOrDefault(Domain.Enums.ProductStatus.ACTIVE));
 
         var total = await query.CountAsync(ct);
 

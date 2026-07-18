@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.SubCategories.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.SubCategories.Commands;
 
@@ -35,7 +36,7 @@ public class UpdateSubCategoryCommandHandler : IRequestHandler<UpdateSubCategory
         if (request.Description is not null) entity.Description = request.Description;
         if (request.Code is not null) entity.Code = request.Code;
         if (request.ImageUrl is not null) entity.ImageUrl = request.ImageUrl;
-        if (request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s)) entity.Status = s;
+        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
         if (request.CategoryId.HasValue)
         {
             var categoryExists = await _context.ProductCategories.AnyAsync(x => x.Id == request.CategoryId.Value, ct);

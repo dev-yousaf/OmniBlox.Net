@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.Billers.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Billers.Commands;
 
@@ -33,7 +34,7 @@ public class UpdateBillerCommandHandler : IRequestHandler<UpdateBillerCommand, B
         if (request.Email is not null) entity.Email = request.Email;
         if (request.Phone is not null) entity.Phone = request.Phone;
         if (request.Address is not null) entity.Address = request.Address;
-        if (request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s)) entity.Status = s;
+        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
 
         entity.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync(ct);

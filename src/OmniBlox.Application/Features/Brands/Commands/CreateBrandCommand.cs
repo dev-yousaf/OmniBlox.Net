@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.Brands.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Brands.Commands;
 
@@ -42,7 +43,7 @@ public class CreateBrandCommandHandler : IRequestHandler<CreateBrandCommand, Bra
             Slug = slug,
             ImageUrl = request.ImageUrl,
             Description = request.Description,
-            Status = request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+            Status = request.Status.ToEnumOrDefault(ActiveStatus.ACTIVE),
             CompanyId = companyId,
         };
 

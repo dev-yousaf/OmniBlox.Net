@@ -5,6 +5,7 @@ using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Quotations.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Quotations.Commands;
 
@@ -44,8 +45,8 @@ public class UpdateQuotationCommandHandler : IRequestHandler<UpdateQuotationComm
             throw new NotFoundException(nameof(Customer), request.CustomerId);
 
         quotation.CustomerId = request.CustomerId;
-        quotation.QuoteDate = DateTime.SpecifyKind(request.QuoteDate, DateTimeKind.Utc);
-        quotation.ExpiryDate = request.ExpiryDate.HasValue ? DateTime.SpecifyKind(request.ExpiryDate.Value, DateTimeKind.Utc) : null;
+        quotation.QuoteDate = request.QuoteDate.AsUtc();
+        quotation.ExpiryDate = request.ExpiryDate.AsUtcOrNull();
         quotation.Status = request.Status;
         quotation.Notes = request.Notes;
 

@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.Products.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Products.Commands;
 
@@ -65,8 +66,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         if (request.Name is not null) product.Name = request.Name;
         if (request.SKU is not null) product.SKU = request.SKU;
         if (request.Description is not null) product.Description = request.Description;
-        if (request.Type is not null && Enum.TryParse<ProductType>(request.Type, true, out var type))
-            product.Type = type;
+        if (request.Type is not null) product.Type = request.Type.ToEnumOrDefault(product.Type);
         if (request.Category is not null) product.Category = request.Category;
         if (request.SubCategory is not null) product.SubCategory = request.SubCategory;
         if (request.Brand is not null) product.Brand = request.Brand;
@@ -75,16 +75,15 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         if (request.SalePrice.HasValue) product.SalePrice = request.SalePrice.Value;
         if (request.CostPrice.HasValue) product.CostPrice = request.CostPrice.Value;
         if (request.ReorderLevel.HasValue) product.ReorderLevel = request.ReorderLevel.Value;
-        if (request.Status is not null && Enum.TryParse<ProductStatus>(request.Status, true, out var status))
-            product.Status = status;
+        if (request.Status is not null) product.Status = request.Status.ToEnumOrDefault(product.Status);
         if (request.BarcodeSymbology is not null) product.BarcodeSymbology = request.BarcodeSymbology;
         if (request.TaxRate.HasValue) product.TaxRate = request.TaxRate;
         if (request.AlertQuantity.HasValue) product.AlertQuantity = request.AlertQuantity;
         if (request.ItemCode is not null) product.ItemCode = request.ItemCode;
         if (request.Manufacturer is not null) product.Manufacturer = request.Manufacturer;
         if (request.Warranty is not null) product.Warranty = request.Warranty;
-        if (request.ManufacturedDate is not null) product.ManufacturedDate = DateTime.SpecifyKind(request.ManufacturedDate.Value, DateTimeKind.Utc);
-        if (request.ExpiryDate is not null) product.ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate.Value, DateTimeKind.Utc);
+        if (request.ManufacturedDate is not null) product.ManufacturedDate = request.ManufacturedDate.Value.AsUtc();
+        if (request.ExpiryDate is not null) product.ExpiryDate = request.ExpiryDate.Value.AsUtc();
 
         product.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync(ct);

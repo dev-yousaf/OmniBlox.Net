@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Team.DTOs;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Team.Queries;
 
@@ -36,11 +37,8 @@ public class GetUsersQueryHandler : IRequestHandler<GetUsersQuery, TeamListRespo
                 u.Email.ToLower().Contains(search));
         }
 
-        if (!string.IsNullOrWhiteSpace(request.Role) &&
-            Enum.TryParse<Domain.Enums.UserRole>(request.Role, true, out var role))
-        {
-            query = query.Where(u => u.Role == role);
-        }
+        if (!string.IsNullOrWhiteSpace(request.Role))
+            query = query.Where(u => u.Role == request.Role.ToEnumOrDefault<Domain.Enums.UserRole>());
 
         var total = await query.CountAsync(ct);
 

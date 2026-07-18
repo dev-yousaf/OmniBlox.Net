@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.ProductCategories.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.ProductCategories.Commands;
 
@@ -30,7 +31,7 @@ public class UpdateProductCategoryCommandHandler : IRequestHandler<UpdateProduct
 
         if (request.Name is not null) entity.Name = request.Name;
         if (request.Description is not null) entity.Description = request.Description;
-        if (request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s)) entity.Status = s;
+        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
 
         if (request.Slug is not null)
         {

@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.ProductCategories.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.ProductCategories.Commands;
 
@@ -40,7 +41,7 @@ public class CreateProductCategoryCommandHandler : IRequestHandler<CreateProduct
             Name = request.Name,
             Slug = slug,
             Description = request.Description,
-            Status = request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+            Status = request.Status.ToEnumOrDefault(ActiveStatus.ACTIVE),
             CompanyId = companyId,
         };
 

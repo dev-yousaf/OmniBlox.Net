@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.Warranties.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Warranties.Commands;
 
@@ -33,7 +34,7 @@ public class UpdateWarrantyCommandHandler : IRequestHandler<UpdateWarrantyComman
         if (request.Duration.HasValue) entity.Duration = request.Duration.Value;
         if (request.DurationType is not null) entity.DurationType = request.DurationType;
         if (request.Description is not null) entity.Description = request.Description;
-        if (request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s)) entity.Status = s;
+        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
 
         entity.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync(ct);

@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.SubCategories.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.SubCategories.Commands;
 
@@ -49,7 +50,7 @@ public class CreateSubCategoryCommandHandler : IRequestHandler<CreateSubCategory
             Code = request.Code,
             ImageUrl = request.ImageUrl,
             Description = request.Description,
-            Status = request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s) ? s : ActiveStatus.ACTIVE,
+            Status = request.Status.ToEnumOrDefault(ActiveStatus.ACTIVE),
             CompanyId = companyId,
         };
 

@@ -5,6 +5,7 @@ using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Expenses.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Expenses.Commands;
 
@@ -41,7 +42,7 @@ public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand,
         {
             Reference = request.Reference,
             Amount = request.Amount,
-            ExpenseDate = request.ExpenseDate == default ? DateTime.UtcNow : DateTime.SpecifyKind(request.ExpenseDate, DateTimeKind.Utc),
+            ExpenseDate = request.ExpenseDate == default ? DateTime.UtcNow : request.ExpenseDate.AsUtc(),
             Description = request.Description,
             Vendor = request.Vendor,
             Status = "PENDING",

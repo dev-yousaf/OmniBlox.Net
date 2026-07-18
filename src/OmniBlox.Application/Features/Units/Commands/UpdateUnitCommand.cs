@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.Units.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Units.Commands;
 
@@ -32,7 +33,7 @@ public class UpdateUnitCommandHandler : IRequestHandler<UpdateUnitCommand, UnitD
         if (request.Name is not null) entity.Name = request.Name;
         if (request.ShortName is not null) entity.ShortName = request.ShortName;
         if (request.Description is not null) entity.Description = request.Description;
-        if (request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s)) entity.Status = s;
+        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
 
         if (request.Slug is not null)
         {

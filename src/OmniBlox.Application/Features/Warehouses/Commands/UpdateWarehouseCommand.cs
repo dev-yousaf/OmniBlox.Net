@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.Warehouses.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Warehouses.Commands;
 
@@ -34,7 +35,7 @@ public class UpdateWarehouseCommandHandler : IRequestHandler<UpdateWarehouseComm
             entity.Name = request.Name;
         }
         if (request.Location is not null) entity.Location = request.Location;
-        if (request.Status is not null && Enum.TryParse<ActiveStatus>(request.Status, true, out var s)) entity.Status = s;
+        if (request.Status is not null) entity.Status = request.Status.ToEnumOrDefault(entity.Status);
 
         entity.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync(ct);

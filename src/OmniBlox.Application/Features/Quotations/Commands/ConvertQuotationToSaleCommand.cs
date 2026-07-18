@@ -5,6 +5,7 @@ using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Quotations.Commands;
 
@@ -73,8 +74,8 @@ public class ConvertQuotationToSaleCommandHandler : IRequestHandler<ConvertQuota
         {
             InvoiceNumber = invoiceNumber,
             CustomerId = quotation.CustomerId,
-            SaleDate = DateTime.SpecifyKind(request.SaleDate, DateTimeKind.Utc),
-            DueDate = DateTime.SpecifyKind(request.DueDate, DateTimeKind.Utc),
+            SaleDate = request.SaleDate.AsUtc(),
+            DueDate = request.DueDate.AsUtc(),
             Status = request.Status,
             PaymentStatus = request.PaymentStatus,
             PaymentMethod = request.PaymentMethod,

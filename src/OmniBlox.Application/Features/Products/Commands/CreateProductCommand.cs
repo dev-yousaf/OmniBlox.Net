@@ -6,6 +6,7 @@ using OmniBlox.Application.Features.Products.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Domain.Enums;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Products.Commands;
 
@@ -91,7 +92,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             Name = request.Name,
             SKU = request.SKU,
             Description = request.Description,
-            Type = Enum.TryParse<ProductType>(request.Type, true, out var type) ? type : ProductType.STANDARD,
+            Type = request.Type.ToEnumOrDefault(ProductType.STANDARD),
             Category = request.Category,
             SubCategory = request.SubCategory,
             Brand = request.Brand,
@@ -101,15 +102,15 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             CostPrice = request.CostPrice,
             Stock = 0,
             ReorderLevel = request.ReorderLevel,
-            Status = Enum.TryParse<ProductStatus>(request.Status, true, out var status) ? status : ProductStatus.ACTIVE,
+            Status = request.Status.ToEnumOrDefault(ProductStatus.ACTIVE),
             BarcodeSymbology = request.BarcodeSymbology,
             TaxRate = request.TaxRate,
             AlertQuantity = request.AlertQuantity,
             ItemCode = request.ItemCode,
             Manufacturer = request.Manufacturer,
             Warranty = request.Warranty,
-            ManufacturedDate = request.ManufacturedDate is not null ? DateTime.SpecifyKind(request.ManufacturedDate.Value, DateTimeKind.Utc) : null,
-            ExpiryDate = request.ExpiryDate is not null ? DateTime.SpecifyKind(request.ExpiryDate.Value, DateTimeKind.Utc) : null,
+            ManufacturedDate = request.ManufacturedDate is not null ? request.ManufacturedDate.Value.AsUtc() : null,
+            ExpiryDate = request.ExpiryDate is not null ? request.ExpiryDate.Value.AsUtc() : null,
             CompanyId = companyId,
             CreatedById = userId,
         };

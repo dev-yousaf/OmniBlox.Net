@@ -5,6 +5,7 @@ using OmniBlox.Application.Common.Interfaces;
 using OmniBlox.Application.Features.Quotations.DTOs;
 using OmniBlox.Domain.Entities;
 using OmniBlox.Shared.Exceptions;
+using OmniBlox.Shared.Extensions;
 
 namespace OmniBlox.Application.Features.Quotations.Commands;
 
@@ -75,8 +76,8 @@ public class CreateQuotationCommandHandler : IRequestHandler<CreateQuotationComm
             ReferenceNumber = reference,
             CustomerId = request.CustomerId,
             UserId = _currentUser.UserId,
-            QuoteDate = DateTime.SpecifyKind(request.QuoteDate, DateTimeKind.Utc),
-            ExpiryDate = request.ExpiryDate.HasValue ? DateTime.SpecifyKind(request.ExpiryDate.Value, DateTimeKind.Utc) : null,
+            QuoteDate = request.QuoteDate.AsUtc(),
+            ExpiryDate = request.ExpiryDate.AsUtcOrNull(),
             Status = request.Status,
             Notes = request.Notes,
             TotalAmount = totalAmount,
