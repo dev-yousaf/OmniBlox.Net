@@ -127,7 +127,9 @@ public class AppDbContext : DbContext, IApplicationDbContext
 
         var result = await base.SaveChangesAsync(ct);
 
-        if (auditEntries.Count > 0 && userId.HasValue && companyId.HasValue)
+        if (auditEntries.Count > 0
+            && userId.HasValue && userId.Value != Guid.Empty
+            && companyId.HasValue && companyId.Value != Guid.Empty)
         {
             var logs = auditEntries.Select(a => new AuditLog
             {
