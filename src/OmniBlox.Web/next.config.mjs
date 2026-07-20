@@ -13,7 +13,7 @@ const nextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://localhost:5005/:path*",
+        destination: `${process.env.API_URL || "http://localhost:5005"}/:path*`,
       },
     ];
   },
