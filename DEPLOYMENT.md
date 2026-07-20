@@ -30,8 +30,7 @@ Set these on the **Render** service (backend) and **Vercel** (frontend).
 | `Jwt__Secret` | JWT signing key (min 32 chars, use `openssl rand -base64 48`) |
 | `Jwt__Issuer` | JWT issuer (e.g. `omniblox-api`) |
 | `Jwt__Audience` | JWT audience (e.g. `omniblox-app`) |
-| `Cors__Origins__0` | Production frontend URL (e.g. `https://omniblox.vercel.app`) |
-| `Cors__Origins__1` | Additional allowed origin (if needed) |
+| `Cors__Origins` | Comma-separated frontend URLs (e.g. `https://omniblox.vercel.app` or `https://site1.com,https://site2.com`) |
 | `ASPNETCORE_ENVIRONMENT` | `Production` |
 
 **Secret rotation notes:**
@@ -108,7 +107,7 @@ The API exposes `GET /health` returning `{ "status": "healthy", "timestamp": "..
 CORS origins are read from the `Cors:Origins` configuration array.
 
 - Local dev: `["http://localhost:3000"]` (in `appsettings.json`)
-- Production: set via `Cors__Origins__0` env var to your Vercel deployment URL
+- Production: set via `Cors__Origins` env var (e.g. `https://omniblox.vercel.app`)
 
 **Security note:** If you add Vercel preview deployment support later, do NOT use a blanket `*.vercel.app` wildcard since `AllowCredentials()` is enabled. Instead, use a scoped pattern matching your project's preview URLs (e.g. `omniblox-*-username.vercel.app`) once the exact Vercel URL format is confirmed.
 
