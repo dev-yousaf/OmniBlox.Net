@@ -20,8 +20,7 @@ public class CurrentUserService : ICurrentUserService
             var value = _httpContextAccessor.HttpContext?.User
                 .FindFirstValue(ClaimTypes.NameIdentifier);
 
-            return value is not null ? Guid.Parse(value)
-                : throw new UnauthorizedAccessException("User not authenticated.");
+            return value is not null ? Guid.Parse(value) : Guid.Empty;
         }
     }
 
