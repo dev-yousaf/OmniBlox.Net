@@ -136,8 +136,8 @@ public class AuthController : ControllerBase
         Response.Cookies.Append("access_token", token, new CookieOptions
         {
             HttpOnly = true,
-            SameSite = SameSiteMode.Lax,
-            Secure = false,
+            SameSite = SameSiteMode.None,
+            Secure = true,
             MaxAge = TimeSpan.FromDays(7),
         });
     }
