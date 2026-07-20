@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Configuration.Json;
 using Microsoft.IdentityModel.Tokens;
 using OmniBlox.Api.Middleware;
 using OmniBlox.Application;
@@ -8,6 +9,15 @@ using OmniBlox.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Disable file watchers in production — Render's container has a low inotify limit
+if (!builder.Environment.IsDevelopment())
+{
+    foreach (var source in builder.Configuration.Sources.OfType<Microsoft.Extensions.Configuration.Json.JsonConfigurationSource>())
+    {
+        source.ReloadOnChange = false;
+    }
+}
 
 var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
 builder.Services.AddCors(options =>
